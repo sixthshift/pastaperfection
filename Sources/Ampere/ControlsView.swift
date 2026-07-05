@@ -77,6 +77,31 @@ struct ControlsView: View {
         )
     }
 
+    private var calibrationScheduleEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.config?.calibrationScheduleEnabled ?? Config.defaultCalibrationScheduleEnabled },
+            set: { newValue in model.setConfig(PartialConfig(calibrationScheduleEnabled: newValue)) }
+        )
+    }
+
+    private var calibrationDayOfMonthBinding: Binding<Int> {
+        Binding(
+            get: { model.config?.calibrationDayOfMonth ?? Config.defaultCalibrationDayOfMonth },
+            set: { newValue in model.setConfig(PartialConfig(calibrationDayOfMonth: newValue)) }
+        )
+    }
+
+    /// "Calibrate now" is disabled while the daemon is unreachable, while no
+    /// external power is connected (calibration needs the adapter to charge
+    /// back up), or while a calibration is already in progress (SPEC §5
+    /// Phase 4) — three separate live-derived conditions per this ticket.
+    private var calibrateStartDisabled: Bool {
+        guard let payload else { return true }
+        if payload.externalConnected == false { return true }
+        if payload.calibration != nil { return true }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             limitSection
@@ -84,6 +109,8 @@ struct ControlsView: View {
             heatProtectionSection
             Divider()
             actionButtons
+            Divider()
+            calibrationSection
             Divider()
             offSection
 
@@ -178,6 +205,61 @@ struct ControlsView: View {
                 model.sendAction(.topUp)
             }
             .disabled(!isDaemonAvailable || topUpActive)
+        }
+    }
+
+    // MARK: - Calibration (SPEC §1.7, §5 Phase 4, ticket T019)
+
+    private var calibrationSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Calibrate now") {
+                model.sendAction(.calibrateStart)
+            }
+            .disabled(calibrateStartDisabled)
+
+            if let calibration = payload?.calibration {
+                calibrationProgressRow(calibration)
+            }
+
+            Toggle("Monthly calibration", isOn: calibrationScheduleEnabledBinding)
+                .disabled(!isDaemonAvailable)
+            if calibrationScheduleEnabledBinding.wrappedValue {
+                Stepper(
+                    "Day of month: \(calibrationDayOfMonthBinding.wrappedValue)",
+                    value: calibrationDayOfMonthBinding,
+                    in: 1...28
+                )
+                .disabled(!isDaemonAvailable)
+            }
+        }
+    }
+
+    /// "Calibrating — <phase> (started <relative time>)" plus an Abort
+    /// button, shown while `payload.calibration != nil`. The phase text
+    /// comes straight from `calibration.phase` (the control core's own
+    /// phase name, e.g. "discharge"/"charge"/"hold"/"done") rather than a
+    /// hardcoded label, and the relative time is rendered live via
+    /// `Text(_:style:.relative)` from `calibration.startedAt`.
+    private func calibrationProgressRow(_ calibration: CalibrationPayload) -> some View {
+        HStack {
+            Label {
+                HStack(spacing: 4) {
+                    Text("Calibrating \u{2014} \(calibration.phase) (started")
+                    Text(calibration.startedAt, style: .relative)
+                    Text(")")
+                }
+            } icon: {
+                Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button("Abort") {
+                model.sendAction(.calibrateAbort)
+            }
+            .disabled(!isDaemonAvailable)
         }
     }
 
