@@ -1,10 +1,11 @@
 import SwiftUI
 import AmpereCore
 
-/// The popover's controls section (SPEC §3.1, §5 Phase 2, ticket T012):
-/// limit slider, sailing toggle + offset stepper, discharge/top-up one-shot
-/// buttons, an off/limit mode toggle, and two conditional advisory rows
-/// (heat pause, write-verification canary).
+/// The popover's controls section (SPEC §3.1, §5 Phase 2/3, tickets T012, T016):
+/// limit slider, sailing toggle + offset stepper, heat protection toggle +
+/// threshold stepper, discharge/top-up one-shot buttons, an off/limit mode
+/// toggle, and two conditional advisory rows (heat pause,
+/// write-verification canary).
 ///
 /// Every mutation here goes through a `DaemonClientModel` method
 /// (`setLimit`/`setConfig`/`sendAction`) — this view never constructs
@@ -43,6 +44,27 @@ struct ControlsView: View {
         )
     }
 
+    private var heatProtectionEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.config?.heatProtectionEnabled ?? Config.defaultHeatProtectionEnabled },
+            set: { newValue in model.setConfig(PartialConfig(heatProtectionEnabled: newValue)) }
+        )
+    }
+
+    /// `Stepper` needs an `Int` for whole-degree steps; `heatThresholdC` is a
+    /// `Double` on the wire (SPEC §3.2) so the binding round-trips through
+    /// `Int` for display/editing and sends back a `Double`.
+    private var heatThresholdBinding: Binding<Int> {
+        Binding(
+            get: {
+                Int((model.config?.heatThresholdC ?? Config.defaultHeatThresholdC).rounded())
+            },
+            set: { newValue in
+                model.setConfig(PartialConfig(heatThresholdC: Double(newValue)))
+            }
+        )
+    }
+
     /// `true` maps to config `mode == "off"`, `false` to `mode == "limit"` —
     /// the one-shot runtime modes (`discharging`/`topping-up`/`calibrating`)
     /// are never written here, only read via `isOff`.
@@ -59,6 +81,7 @@ struct ControlsView: View {
         VStack(alignment: .leading, spacing: 10) {
             limitSection
             sailingSection
+            heatProtectionSection
             Divider()
             actionButtons
             Divider()
@@ -119,6 +142,23 @@ struct ControlsView: View {
                     "Resume offset: \(sailingOffsetBinding.wrappedValue)%",
                     value: sailingOffsetBinding,
                     in: 5...20
+                )
+                .disabled(!isDaemonAvailable)
+            }
+        }
+    }
+
+    // MARK: - Heat protection
+
+    private var heatProtectionSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle("Heat protection", isOn: heatProtectionEnabledBinding)
+                .disabled(!isDaemonAvailable)
+            if heatProtectionEnabledBinding.wrappedValue {
+                Stepper(
+                    "Pause threshold: \(heatThresholdBinding.wrappedValue) \u{00B0}C",
+                    value: heatThresholdBinding,
+                    in: 30...45
                 )
                 .disabled(!isDaemonAvailable)
             }
