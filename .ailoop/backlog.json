@@ -312,7 +312,7 @@
     {
       "id": "T017",
       "title": "Calibration state machine in control core",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T006"
       ],
@@ -324,7 +324,7 @@
       "context": "Extend ControlCore (T006 built it; its CalibrationState placeholder is nil until now) with the SPEC §3.3 calibration rules: phases discharge(target 15, floor 15: adapter disabled) -> charge(target 100: adapter enabled, charging allowed — heat inhibit still wins per spec) -> hold(1 h from reaching 100, charging allowed) -> done(restore limit mode). Transitions driven by decide()'s now: Date parameter — no timers in core. Abort semantics: calibrate-abort action OR externalConnected going false in any phase -> immediate restore (enableAdapter, limit-mode rules apply next tick). CalibrationState carries {phase, phaseEnteredAt, holdStartedAt?}. Do not change any T006 rule — existing tests must stay green untouched (modifying an existing T006 test = red flag, justify or fail).",
       "acceptance": "- Swift Testing tests: full happy path via sequential decide() calls with advancing now (percent 60 -> discharge commands disableAdapter -> at 15 flips to charge phase + enableAdapter+allowCharging -> at 100 enters hold with holdStartedAt -> now+61 min -> done, limit mode active again)\n- abort from EACH phase (discharge/charge/hold) -> enableAdapter emitted, calibration nil, limit rules resume (three contrast tests)\n- unplug during discharge -> same restoration\n- heat 36/threshold 35 during charge phase -> inhibitCharging emitted while still calibrating (phase unchanged)\n- ALL pre-existing T006 tests pass unmodified\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact [ControlCore.swift, ControlCoreTests.swift]; test file append-only (0 deleted lines); 73/73 on worktree, 80/80 on merged tree with T011; calibration rules match SPEC §3.3 (floor 15 at percent<=15, hold 3600s via holdStartedAt, unplug abort guard, heat inhibit without phase change). Merged; gate green."
     },
     {
       "id": "T018",

@@ -188,3 +188,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        duplicate symbols)
   attempt: 1/3
   evidence: 72/72 worktree + merged tree; alive after 3 s, SIGTERM clean
+
+[0020] T017 — done (attempt 1)
+  decision: continue
+  why: re-verify green; append-only test rule held (escaped-bug guard from
+       red-team finding 7); calibration transitions driven by now: Date only;
+       merged cleanly over T011 (disjoint files), combined gate green
+  attempt: 1/3
+  evidence: 73/73 worktree; 80/80 merged tree
