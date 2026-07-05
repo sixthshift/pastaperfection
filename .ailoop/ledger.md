@@ -89,3 +89,12 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        in exactly the intended fields — not gameable by hardcoding)
   attempt: 1/3
   evidence: build exit 0; 5/5 tests; merged --no-ff to main
+
+[0009] T002 — done (attempt 1)
+  decision: continue
+  why: independent re-verify green; scope exact; gaming read on the
+       safety-critical port: selector bytes, struct layout, and read/write
+       param construction all match docs/reference/bclm-SMC.swift; tests
+       contrast read vs write selectors (not gameable by stub structs)
+  attempt: 1/3
+  evidence: build exit 0; 10/10 tests; MIT header line 17; merged --no-ff
