@@ -229,3 +229,22 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        hierarchy; merge order T012 -> T013; if the textual conflict is
        non-trivial at merge, per SKILL.md the conflicting ticket is
        re-dispatched serially instead of hand-merging semantics.
+
+[0025] T010 — done (attempt 1)
+  decision: continue
+  why: re-verify green; daemon now serves the full SPEC §3.1 protocol; install/
+       uninstall dry-runs match SPEC §3 paths exactly
+  evidence: 100/100; dry-run transcripts in backlog evidence
+
+[0026] T012 — done (attempt 1)
+  decision: continue
+  why: re-verify green; verifier contract greps all pass (no SocketClient in
+       views, release-send slider, live-temp heat row)
+  evidence: 97/97 worktree, 100/100 merged
+
+[0027] T013 — done (attempt 1); MenuBarView conflict resolved as trivial
+  decision: continue
+  why: conflict was the anticipated placeholder-vs-ControlsView overlap; both
+       features kept (ControlsView + login toggle + InstallPromptView), no
+       semantic judgment required; merged-tree gate green incl. bundle build
+  evidence: 100/100; plutil+codesign OK; app alive daemon-absent

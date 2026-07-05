@@ -179,7 +179,7 @@
     {
       "id": "T010",
       "title": "Wire socket into daemon + ampere-cli install/uninstall/state",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T008",
         "T009"
@@ -196,7 +196,7 @@
       "context": "(1) DaemonServer.swift: instantiate T009's SocketServer at /var/run/ampere.sock mode 0660, handler implements every SPEC §3.1 cmd against the live daemon state (get-state assembles the full payload incl. pauseReason and lastWriteVerified canary as `writeVerified`; set-limit/set-config mutate config + persist + immediate re-evaluate; action dispatches one-shot modes into ControlState; get-stats returns [] until T014). (2) LaunchdPlist.swift in AmpereCore: pure function returning the plist XML string for label com.ampere.daemon, ProgramArguments [/Library/PrivilegedHelperTools/ampered], RunAtLoad true, KeepAlive true — pure so it's unit-testable. (3) InstallCommands.swift: `install` (root-guarded): copy .build's ampered (or --binary path) to /Library/PrivilegedHelperTools/ampered (create dir 0755), write plist to /Library/LaunchDaemons/com.ampere.daemon.plist, `launchctl bootstrap system <plist>`; `uninstall`: `launchctl bootout system/com.ampere.daemon`, remove plist + binary + socket, leave config; both support `--dry-run` printing each planned action without executing (no root needed for dry-run). `state`: SocketClient get-state, pretty-print (no root). Keep T007's spike commands working.",
       "acceptance": "- PlistTests: generated plist contains label com.ampere.daemon, the binary path, RunAtLoad true AND `plutil -lint` accepts it (write to temp file in test)\n- `.build/debug/ampere-cli install --dry-run` exits 0 (no sudo) and prints, in order: binary copy destination, plist path, bootstrap command — assert all three substrings\n- `.build/debug/ampere-cli uninstall --dry-run` prints bootout command + both removal paths\n- `swift build` + `swift test` green\n([HW] install/limit/sleep/uninstall checks are the Phase 1 gate, human-run.)",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (7 files); 100/100 worktree+merged; PlistTests use real plutil; dry-runs print exact install/uninstall actions; state exits 1 cleanly daemon-absent; spike commands unchanged."
     },
     {
       "id": "T011",
@@ -221,7 +221,7 @@
     {
       "id": "T012",
       "title": "Controls popover: limit slider, sailing toggle, discharge/top-up actions",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T011"
       ],
@@ -234,12 +234,12 @@
       "context": "ControlsView inside the popover (wired into MenuBarView's placeholder from T011): limit Slider 50...100 step 5 with live % label -> set-limit on release (debounced, not per-tick); sailing Toggle + offset Stepper (5...20) -> set-config; buttons 'Discharge to limit' and 'Top up to 100%' -> action cmds, disabled when daemon unavailable or already in that one-shot mode (read from get-state mode field); an 'Off' toggle mapping to config.mode off|limit with a caution footnote. All mutations go through DaemonClientModel (T011) — no new socket code. Show pauseReason ('Paused: heat') and the writeVerified canary ('⚠︎ charge control may be broken by a macOS update') when false.",
       "acceptance": "- `swift build` + `swift test` green (no regressions)\n- code review contract (verifier reads diff): every control routes through DaemonClientModel methods; no direct SocketClient construction in views; slider debounces (onEditingChanged/on release, not onChange per tick)\n- `.build/debug/Ampere` still launches daemon-absent without crash",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (3 files); 97/97 worktree, 100/100 merged; contract greps: zero SocketClient() in views, slider sends on onEditingChanged(false), heat row uses live temperatureC, writeVerified warning present; app alive 3s daemon-absent."
     },
     {
       "id": "T013",
       "title": "make-app.sh bundle script, launch-at-login, first-run install prompt, README",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T011"
       ],
@@ -254,7 +254,7 @@
       "context": "(1) scripts/make-app.sh: swift build -c release, assemble dist/Ampere.app (Contents/MacOS/Ampere from release binary, Contents/Info.plist with CFBundleIdentifier com.ampere.app, CFBundleName Ampere, LSUIElement true, LSMinimumSystemVersion 14.0), `codesign -s - --force dist/Ampere.app`. Idempotent (rm -rf dist/Ampere.app first). (2) LoginItem.swift: SMAppService.mainApp register/unregister behind a toggle in the popover; when running as a bare binary (no bundle), hide the toggle (Bundle.main.bundleIdentifier == nil check). (3) InstallPromptView.swift: shown by MenuBarView when state == .daemonUnavailable — explains the one-time step and shows the copyable command: sudo <path>/ampere-cli install --binary <path>/ampered. (4) README.md: what Ampere is, build steps, install/uninstall, the SPEC §8 warning that macOS Settings > Battery charge limit must stay off/100%, and the firmware-canary explanation.",
       "acceptance": "- `bash scripts/make-app.sh` exits 0; dist/Ampere.app/Contents/MacOS/Ampere is executable; `plutil -lint dist/Ampere.app/Contents/Info.plist` passes; `/usr/libexec/PlistBuddy -c 'Print LSUIElement' ...` == true; `codesign -v dist/Ampere.app` exits 0\n- README contains the native-charge-limit warning (grep 'charge limit')\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (5 files); make-app.sh produces signed dist/Ampere.app (plutil lint OK, LSUIElement true, codesign -v OK, ampered+ampere-cli bundled in Resources); README has native-charge-limit warning; MenuBarView conflict with T012 resolved trivially (keep ControlsView + login toggle), merged gate green."
     },
     {
       "id": "T014",
