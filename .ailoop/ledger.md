@@ -157,3 +157,9 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        Power/AC Power flips both ways; docs/smc-findings.md records the
        confirmed key table. GO decision for the project.
   evidence: user-run gate transcripts (2026-07-05); docs/smc-findings.md
+
+[0016] run — interruption: session limit hit mid-dispatch; T006/T009 workers
+       terminated before producing results
+  decision: retry (not counted as attempts — no build output, no diagnosis to log)
+  why: workers died to an API limit, not a build failure; worktrees auto-cleaned,
+       tickets still todo. Re-dispatching identical briefs on resume.
