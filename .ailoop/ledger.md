@@ -81,3 +81,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        impl uses per-field decodeIfPresent, atomic save)
   attempt: 1/3
   evidence: build exit 0; 6/6 tests; merged --no-ff to main
+
+[0008] T003 — done (attempt 1)
+  decision: continue
+  why: independent re-verify green on worker worktree; scope exact; diff
+       faithful to SPEC §3.3/§4 (contrast fixtures assert B differs from A
+       in exactly the intended fields — not gameable by hardcoding)
+  attempt: 1/3
+  evidence: build exit 0; 5/5 tests; merged --no-ff to main

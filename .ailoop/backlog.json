@@ -51,7 +51,7 @@
     {
       "id": "T003",
       "title": "BatteryState model + AppleSmartBattery reader with injectable parser",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T001"
       ],
@@ -64,7 +64,7 @@
       "context": "Two pieces. (1) BatteryState.swift: the frozen struct from SPEC §3.3 (percent, isCharging, externalConnected, temperatureC) plus an extended BatteryReading that also carries cycleCount, appleRawMaxCapacity, designCapacity, amperageMA, voltageMV (SPEC §4 key list). (2) BatteryReader.swift: parse(_ dict: [String: Any]) -> BatteryReading — pure, injectable for tests — plus a live path that fetches the AppleSmartBattery IORegistry service dictionary via IOServiceGetMatchingService/IORegistryEntryCreateCFProperties (no root needed). Temperature key is centi-degrees C: 3011 -> 30.11. Missing keys -> sensible defaults + a `complete: Bool` flag, never a crash.",
       "acceptance": "- fixture test A (charging): dict {CurrentCapacity:62, IsCharging:true, ExternalConnected:true, Temperature:3011, CycleCount:412, AppleRawMaxCapacity:4382, DesignCapacity:5088, Amperage:1250, Voltage:12600} parses to percent 62, charging true, temperatureC 30.11, watts computable\n- fixture test B (discharging): IsCharging:false, ExternalConnected:false, Amperage:-890 parses with negative amperage and externalConnected false — outputs must differ from A in exactly those fields\n- fixture test C: empty dict -> complete == false, no crash\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-05 on worktree: scope = exactly the 3 contracted files; swift build exit 0; scripts/test.sh 5/5 (fixtures A/B/C incl. contrast + partial-dict); gaming read clean (pure parse, centi-C /100, complete flag per missing key, readLive falls back to parse([:])). Merged to main."
     },
     {
       "id": "T004",
