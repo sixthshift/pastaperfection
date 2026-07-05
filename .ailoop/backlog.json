@@ -360,6 +360,23 @@
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: button disabled-states derived from live state (three conditions), phase text from calibration.phase (not hardcoded), stepper bounds 1...28, all mutations via DaemonClientModel\n- `.build/debug/Ampere` still launches daemon-absent",
       "attempts": [],
       "evidence": null
+    },
+    {
+      "id": "T020",
+      "title": "Repair: CHTE little-endian encoding + dry-run byte assertion (escaped-bug rule)",
+      "status": "todo",
+      "depends_on": [
+        "T007"
+      ],
+      "files": [
+        "Sources/ampere-cli/SpikeCommands.swift",
+        "Sources/ampere-cli/main.swift"
+      ],
+      "origin": "repair: Phase 0 gate red — CHTE write [00 00 00 01] rejected smcResult 137",
+      "context": "Phase 0 hardware gate result (docs/smc-findings.md is authoritative — read it): CHIE 0x08/0x00 CONFIRMED working; CHTE rejected big-endian [00 00 00 01] with smcResult 137 while [00 00 00 00] succeeds. OpenDente cross-reference: inhibit = LITTLE-ENDIAN [01 00 00 00]. Fix SpikeCommands: pause writes exactly bytes [0x01,0x00,0x00,0x00] to CHTE; resume writes [0x00,0x00,0x00,0x00]; drop the generic probed-size big-endian encoder for CHTE (keep the CH0B/CH0C fallback as-is: single byte 0x02/0x00). ESCAPED-BUG RULE — also strengthen the check that let this through: add a --dry-run flag to pause/resume/adapter that prints the exact key and byte array that WOULD be written (format: KEY [xx xx xx xx]) and exits 0 without root and without opening SMC. This makes byte encoding verifiable without sudo forever after.",
+      "acceptance": "- .build/debug/ampere-cli pause --dry-run (no sudo) exits 0 printing CHTE [01 00 00 00]\n- resume --dry-run prints CHTE [00 00 00 00]\n- adapter off --dry-run prints CHIE [08]; adapter on --dry-run prints CHIE [00]\n- pause (no --dry-run, no sudo) still exits 1 mentioning root\n- swift build + bash scripts/test.sh green (39 tests, no regressions)",
+      "attempts": [],
+      "evidence": null
     }
   ]
 }

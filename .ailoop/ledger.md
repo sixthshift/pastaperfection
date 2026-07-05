@@ -123,3 +123,16 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        handed to human (sudo required, cannot run inside coordinator session).
   evidence: merged tree: build exit 0, 39 tests/5 suites green; scheduler next
        ready = T006 (control core), then T008+ after
+
+[0013] phase-0 — hardware gate PARTIAL RED; repair ticket T020 spawned
+  decision: decompose (repair) + amend-oracle (mechanical: SPEC §4 encoding detail)
+  why: [HW] adapter checks GREEN (CHIE 0x08/0x00 confirmed live: Battery Power
+       while plugged in, reversible). [HW] pause check RED: CHTE rejected
+       big-endian [00 00 00 01], smcResult 137; [00 00 00 00] accepted. Root
+       cause: T007 encoded probed-size big-endian; OpenDente (cross-referenced
+       source) writes little-endian [01 00 00 00]. Escaped-bug rule applied:
+       T020 fixes encoding AND adds --dry-run byte assertion so encoding is
+       checkable without sudo from now on.
+  evidence: user-run gate transcript (pmset flips for CHIE both ways; CHTE
+       error 137); OpenDente HelperDelegate.swift:262-263 writes [01 00 00 00];
+       docs/smc-findings.md created with confirmed table

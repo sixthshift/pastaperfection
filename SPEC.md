@@ -130,12 +130,14 @@ Decision rules (locked):
   bytes below. Reads are unrestricted (stats/temperature/key info).
 - Charging inhibit, in fallback order (first key that exists on this firmware wins;
   probe once at startup via key-info, cache the choice):
-  - `CHTE` (Tahoe): ui32? — probe actual type/size via key info; semantic 0 = charging
-    allowed, 1 = inhibited (per ChargeControl). Phase 0 empirically confirms and records
-    exact type + working values in `docs/smc-findings.md`; later tickets cite that file.
+  - `CHTE` (Tahoe): confirmed on this machine ui32/4 bytes, **little-endian**:
+    `[01 00 00 00]` = charging inhibited, `[00 00 00 00]` = allowed. Big-endian
+    `[00 00 00 01]` is REJECTED by firmware (smcResult 137). Cross-checked against
+    OpenDente's helper. Phase 0 records final values in `docs/smc-findings.md`.
   - `CH0B` + `CH0C` (pre-Tahoe, may be dead): ui8, `0x00` allow / `0x02` inhibit, write both.
-- Adapter disable (discharge), fallback order: `CHIE` (candidate values `0x08`/`0x00`),
-  `CH0I` (ui8 `0x01`/`0x00`). Phase 0 confirms → `docs/smc-findings.md`.
+- Adapter disable (discharge): `CHIE` hex_/1 byte, **confirmed live on this machine**:
+  `0x08` = adapter off (Mac runs on battery while plugged in), `0x00` = adapter on.
+  Fallback `CH0I` (ui8 `0x01`/`0x00`) — absent on this firmware.
 - The adapter exposes exactly: `setChargingInhibited(Bool)`, `setAdapterDisabled(Bool)`,
   `probe() -> SMCCapabilities`, plus read helpers. After every write, read back battery
   state to verify effect; log (and surface in `get-state`) if the write had no effect
