@@ -161,7 +161,7 @@
     {
       "id": "T009",
       "title": "Unix socket server (handler-based) + client library + loopback tests",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T005"
       ],
@@ -174,7 +174,7 @@
       "context": "Plain POSIX unix-domain stream sockets (socket/bind/listen/accept + DispatchSource or a background thread; no third-party code). SocketServer: init(path:, mode: mode_t, handler: (RequestLine) -> ResponseLine) — accepts connections, reads newline-delimited requests, writes one response line per request; start()/stop(); stop() unlinks the socket file. SocketClient: connect(path:), request(_ line:) -> line (with timeout). Both are generic over the T005 codec (server takes a closure so it has NO dependency on daemon internals — the daemon wires it in T010). chmod the socket to the given mode after bind; ownership (root:staff per SPEC §3) happens naturally when the daemon runs as root — do not chown in code.",
       "acceptance": "- Swift Testing test binds a REAL unix socket at a NSTemporaryDirectory() path, echoes through the T005 codec: send get-state request -> handler returns a canned state -> client decodes it (assert a field value)\n- error path test: malformed line -> ok:false response, connection stays usable for the next request (contrast: valid request after malformed still succeeds)\n- stop() removes the socket file (assert FileManager non-existence)\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact [SocketServer, SocketClient, SocketTests]; build exit 0; 46/46 twice (flake check); real AF_UNIX socket calls confirmed; stale unlink + chmod(mode) after bind; handler-closure design (no daemon coupling). Merged; merged gate green."
     },
     {
       "id": "T010",

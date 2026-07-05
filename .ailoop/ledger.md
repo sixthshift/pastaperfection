@@ -163,3 +163,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   decision: retry (not counted as attempts — no build output, no diagnosis to log)
   why: workers died to an API limit, not a build failure; worktrees auto-cleaned,
        tickets still todo. Re-dispatching identical briefs on resume.
+
+[0017] T009 — done (attempt 1)
+  decision: continue
+  why: re-verify green twice (socket flake check); scope exact; gaming read
+       clean — tests bind real sockets, malformed-then-valid contrast on the
+       same connection, permissions asserted against requested mode
+  attempt: 1/3
+  evidence: 46/46 on worktree x2 and merged tree; merged --no-ff
