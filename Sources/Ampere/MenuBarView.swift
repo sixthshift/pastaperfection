@@ -58,21 +58,19 @@ struct MenuBarLabel: View {
 }
 
 /// The popover content (`.menuBarExtraStyle(.window)`): a state summary
-/// (percent, charging/paused/discharging line, limit) plus a placeholder
+/// (percent, charging/paused/discharging line, limit) when the daemon is
+/// reachable, `InstallPromptView` when it isn't, plus a placeholder
 /// "Controls coming soon" section — a later ticket replaces the placeholder
 /// with the limit slider / mode toggles / action buttons (SPEC §5 Phase 2).
 struct MenuBarView: View {
     @ObservedObject var model: DaemonClientModel
+    @State private var launchAtLoginEnabled = LoginItem.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             switch model.viewState {
             case .daemonUnavailable:
-                Label("Daemon unavailable", systemImage: StatusFormatting.glyph(for: .daemonUnavailable))
-                    .font(.headline)
-                Text("Ampere's daemon isn't reachable at /var/run/ampere.sock. Install it, then reopen this menu.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                InstallPromptView()
             case .state(let payload):
                 HStack(spacing: 6) {
                     Image(systemName: StatusFormatting.glyph(for: glyphState(for: payload)))
@@ -92,6 +90,14 @@ struct MenuBarView: View {
             Text("Controls coming soon")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if LoginItem.isAvailable {
+                Divider()
+                Toggle("Launch at login", isOn: $launchAtLoginEnabled)
+                    .onChange(of: launchAtLoginEnabled) { _, newValue in
+                        LoginItem.setEnabled(newValue)
+                    }
+            }
         }
         .padding()
         .frame(minWidth: 240)
@@ -99,6 +105,9 @@ struct MenuBarView: View {
             // Immediate refresh on popover open, in addition to the 5 s
             // timer cadence already running in `model`.
             model.refresh()
+            // Reflect the true SMAppService status in case it changed
+            // outside this view (e.g. via System Settings > Login Items).
+            launchAtLoginEnabled = LoginItem.status == .enabled
         }
     }
 }
