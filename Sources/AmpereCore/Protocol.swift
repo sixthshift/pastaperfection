@@ -287,17 +287,60 @@ extension GetStatePayload: Codable {
 /// timestamp; the telemetry sampler ticket (Phase 3) is the authority on
 /// what's actually persisted to `telemetry.jsonl`; this is the wire shape
 /// for handing existing samples back over the socket.
+///
+/// `amperageMA`/`voltageMV` decode with a default of `0` when absent (via
+/// hand-rolled `init(from:)`, matching `Config`'s defaulting style), so
+/// existing telemetry/wire payloads recorded before this ticket still decode
+/// cleanly.
 public struct StatsSample: Codable, Equatable, Sendable {
     public var timestamp: Date
     public var percent: Int
     public var isCharging: Bool
     public var temperatureC: Double
+    /// Signed milliamps; negative while discharging. Defaults to `0` when
+    /// absent from JSON.
+    public var amperageMA: Int
+    /// Millivolts. Defaults to `0` when absent from JSON.
+    public var voltageMV: Int
 
-    public init(timestamp: Date, percent: Int, isCharging: Bool, temperatureC: Double) {
+    public init(
+        timestamp: Date,
+        percent: Int,
+        isCharging: Bool,
+        temperatureC: Double,
+        amperageMA: Int = 0,
+        voltageMV: Int = 0
+    ) {
         self.timestamp = timestamp
         self.percent = percent
         self.isCharging = isCharging
         self.temperatureC = temperatureC
+        self.amperageMA = amperageMA
+        self.voltageMV = voltageMV
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case timestamp, percent, isCharging, temperatureC, amperageMA, voltageMV
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        percent = try container.decode(Int.self, forKey: .percent)
+        isCharging = try container.decode(Bool.self, forKey: .isCharging)
+        temperatureC = try container.decode(Double.self, forKey: .temperatureC)
+        amperageMA = try container.decodeIfPresent(Int.self, forKey: .amperageMA) ?? 0
+        voltageMV = try container.decodeIfPresent(Int.self, forKey: .voltageMV) ?? 0
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(percent, forKey: .percent)
+        try container.encode(isCharging, forKey: .isCharging)
+        try container.encode(temperatureC, forKey: .temperatureC)
+        try container.encode(amperageMA, forKey: .amperageMA)
+        try container.encode(voltageMV, forKey: .voltageMV)
     }
 }
 

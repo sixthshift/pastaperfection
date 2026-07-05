@@ -491,7 +491,9 @@ public final class Daemon {
                 timestamp: sample.ts,
                 percent: sample.percent,
                 isCharging: sample.isCharging,
-                temperatureC: sample.temperatureC
+                temperatureC: sample.temperatureC,
+                amperageMA: sample.amperageMA,
+                voltageMV: sample.voltageMV
             )
         }
         return StatsPayload(samples: samples)
