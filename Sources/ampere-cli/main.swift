@@ -1,3 +1,5 @@
 import AmpereCore
+import Foundation
 
-print("ampere-cli \(Version.string)")
+let arguments = Array(CommandLine.arguments.dropFirst())
+exit(SpikeCommands.run(arguments))
