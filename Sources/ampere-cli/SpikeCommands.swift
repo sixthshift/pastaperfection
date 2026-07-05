@@ -32,6 +32,9 @@ public enum SpikeCommands {
             return 0
         }
 
+        let rest = Array(args.dropFirst())
+        let dryRun = rest.contains("--dry-run")
+
         switch command {
         case "version":
             print("ampere-cli \(Version.string)")
@@ -41,11 +44,11 @@ public enum SpikeCommands {
         case "keys":
             return runKeys()
         case "pause":
-            return runPause()
+            return runPause(dryRun: dryRun)
         case "resume":
-            return runResume()
+            return runResume(dryRun: dryRun)
         case "adapter":
-            return runAdapter(Array(args.dropFirst()))
+            return runAdapter(rest, dryRun: dryRun)
         case "-h", "--help", "help":
             printUsage()
             return 0
@@ -103,20 +106,30 @@ public enum SpikeCommands {
 
     // MARK: pause / resume (charging inhibit, SPEC §4 fallback order)
 
-    static func runPause() -> Int32 {
+    static func runPause(dryRun: Bool) -> Int32 {
+        if dryRun {
+            printDryRun(key: "CHTE", bytes: chteBytes(inhibited: true))
+            return 0
+        }
         guard requireRoot("pause") else { return 1 }
         return setChargingInhibited(true)
     }
 
-    static func runResume() -> Int32 {
+    static func runResume(dryRun: Bool) -> Int32 {
+        if dryRun {
+            printDryRun(key: "CHTE", bytes: chteBytes(inhibited: false))
+            return 0
+        }
         guard requireRoot("resume") else { return 1 }
         return setChargingInhibited(false)
     }
 
     /// `inhibited == true` -> pause charging; `false` -> resume charging.
-    /// Fallback order per SPEC §4: try `CHTE` first (probed type/size,
-    /// values 1/0); if `CHTE` doesn't exist on this firmware, write both
-    /// `CH0B` and `CH0C` (ui8, 0x02 inhibit / 0x00 allow).
+    /// Fallback order per SPEC §4: try `CHTE` first — ui32/4 bytes,
+    /// **little-endian** (`[01 00 00 00]` inhibit / `[00 00 00 00]` allow;
+    /// confirmed live, `docs/smc-findings.md`). If `CHTE` doesn't exist on
+    /// this firmware, write both `CH0B` and `CH0C` (ui8, 0x02 inhibit /
+    /// 0x00 allow).
     static func setChargingInhibited(_ inhibited: Bool) -> Int32 {
         let smc = SMC()
         do {
@@ -130,8 +143,7 @@ public enum SpikeCommands {
         let chteKey = FourCharCode(fromString: "CHTE")
         do {
             if let info = try smc.keyInformation(chteKey) {
-                let value: UInt32 = inhibited ? 1 : 0
-                let bytes = encodeValue(value, size: info.size)
+                let bytes = chteBytes(inhibited: inhibited)
                 try smc.writeData(chteKey, bytes: bytes)
                 let readback = try smc.readData(chteKey)
                 printWriteResult(key: "CHTE", written: bytes, writeSize: info.size, readback: readback)
@@ -163,17 +175,30 @@ public enum SpikeCommands {
         }
     }
 
+    /// The exact bytes `pause`/`resume` write to `CHTE`: ui32, **little-endian**.
+    /// `[01 00 00 00]` inhibited, `[00 00 00 00]` allowed. Big-endian
+    /// `[00 00 00 01]` is REJECTED by firmware (smcResult 137) — see
+    /// `docs/smc-findings.md`.
+    static func chteBytes(inhibited: Bool) -> SMCBytes {
+        makeSMCBytes(inhibited ? [0x01, 0x00, 0x00, 0x00] : [0x00, 0x00, 0x00, 0x00])
+    }
+
     // MARK: adapter on|off (SPEC §4 fallback order)
 
-    static func runAdapter(_ args: [String]) -> Int32 {
+    static func runAdapter(_ args: [String], dryRun: Bool) -> Int32 {
         guard let mode = args.first, mode == "on" || mode == "off" else {
             writeStderr("ampere-cli: usage: ampere-cli adapter on|off\n")
             return 64
         }
 
-        guard requireRoot("adapter \(mode)") else { return 1 }
-
         let disable = (mode == "off")
+
+        if dryRun {
+            printDryRun(key: "CHIE", bytes: makeSMCBytes([disable ? 0x08 : 0x00]), count: 1)
+            return 0
+        }
+
+        guard requireRoot("adapter \(mode)") else { return 1 }
         let smc = SMC()
         do {
             try smc.open()
@@ -267,6 +292,13 @@ public enum SpikeCommands {
         return result.map { String(format: "%02x", $0) }.joined(separator: " ")
     }
 
+    /// ESCAPED-BUG RULE (T020): print the exact key and byte array that
+    /// WOULD be written, without opening an SMC connection, requiring root,
+    /// or writing anything. Format: `KEY [xx xx xx xx]`.
+    static func printDryRun(key: String, bytes: SMCBytes, count: Int = 4) {
+        print("\(key) [\(hexBytes(bytes, count: count))]")
+    }
+
     static func printWriteResult(
         key: String,
         written: SMCBytes,
@@ -295,6 +327,11 @@ public enum SpikeCommands {
           resume               Allow charging (requires root)
           adapter on|off       Enable/disable the charge adapter (requires root)
           version              Print version
+
+        Flags:
+          --dry-run            Print the key/bytes that would be written and
+                                exit 0. No root, no SMC connection, no writes.
+                                Valid with: pause, resume, adapter on|off.
         """
         if toStderr {
             writeStderr(text + "\n")
