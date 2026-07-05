@@ -73,3 +73,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   evidence: swift build exit 0; scripts/test.sh 1/1 passed; targets =
        Ampere, AmpereCore, AmpereCoreTests, ampere-cli, ampered;
        ampere-cli prints "ampere-cli 0.0.1"
+
+[0007] T004 — done (attempt 1)
+  decision: continue
+  why: independent re-verify green on worker worktree; scope exact; diff
+       faithful to SPEC §3.2 (no gaming: tests assert the acceptance table,
+       impl uses per-field decodeIfPresent, atomic save)
+  attempt: 1/3
+  evidence: build exit 0; 6/6 tests; merged --no-ff to main

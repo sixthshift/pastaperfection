@@ -69,7 +69,7 @@
     {
       "id": "T004",
       "title": "Config model (Codable, defaults, clamping, persistence helpers)",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T001"
       ],
@@ -81,7 +81,7 @@
       "context": "Config exactly per SPEC §3.2: limitPercent(80), sailingEnabled(false), sailingOffset(5), heatProtectionEnabled(true), heatThresholdC(35.0), calibrationScheduleEnabled(false), calibrationDayOfMonth(1), mode(\"limit\" | \"off\"). All fields must decode with defaults when absent (decodeIfPresent pattern) so old config files never fail. Provide load(from url:)/save(to url:) helpers (atomic write) and a `settingLimit(_:)` that clamps to 50...100. Do not touch /Library paths in tests — tests use temp dir URLs.",
       "acceptance": "- decode test: `{}` yields every default listed above\n- decode test: `{\"limitPercent\": 60}` yields 60 with other defaults intact (contrast with previous)\n- clamp test: settingLimit(101) == 100, settingLimit(10) == 50, settingLimit(75) == 75\n- round-trip: save then load in temp dir preserves all fields\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-05 on worktree: scope = exactly [Config.swift, ConfigTests.swift]; swift build exit 0; scripts/test.sh 6/6 passed (5 ConfigTests incl. empty-object defaults, partial override, clamp 101/10/75, round-trip); gaming read clean (decodeIfPresent per field, clamp 50...100, atomic save). Merged to main."
     },
     {
       "id": "T005",
