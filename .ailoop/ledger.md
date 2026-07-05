@@ -196,3 +196,21 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        merged cleanly over T011 (disjoint files), combined gate green
   attempt: 1/3
   evidence: 73/73 worktree; 80/80 merged tree
+
+[0021] T008 — done (attempt 1)
+  decision: continue
+  why: re-verify green; safety audit passed (allowlist key literals only,
+       byte values match hardware findings, signal-restore present, non-root
+       refusal); 17 new fake-transport tests incl. byte-exactness contrasts,
+       fallback, idempotence, verify-after-write canary
+  attempt: 1/3
+  evidence: 82/82 worktree; 97/97 merged tree
+
+[0022] run — chunk 2 boundary: 6 tickets closed (T020, T009, T006, T011, T017,
+       T008); cap reached
+  decision: end-chunk
+  why: caps.chunk = 6; ending healthy. Phase 0 closed this run (gate green
+       after T020 repair). Core engine complete: control logic, SMC adapter,
+       daemon loop, socket layer, app shell, calibration machine all merged.
+  evidence: merged tree 97 tests/8 suites green; scheduler next: T010
+       (install/uninstall + socket wiring) unblocks the Phase 1 [HW] gate

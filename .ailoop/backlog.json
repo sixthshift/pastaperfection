@@ -139,7 +139,7 @@
     {
       "id": "T008",
       "title": "SMC adapter (allowlist-enforced, verify-after-write) + ampered daemon loop",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T002",
         "T003",
@@ -156,7 +156,7 @@
       "context": "(1) SMCAdapter.swift: the ONLY module that turns ChargingCommands into SMC writes. API per SPEC §4: probe() caches which inhibit key (CHTE else CH0B/CH0C) and adapter key (CHIE else CH0I) this firmware has; setChargingInhibited(Bool)/setAdapterDisabled(Bool) write per SPEC §4 values, consult docs/smc-findings.md semantics (if that file exists, its confirmed values override the defaults — read it as documentation, hardcode the SPEC §4 defaults). Inject the low-level writer as a protocol (SMCWriting) so tests use a fake. After each write, read back battery state (injectable reader) and set a `lastWriteVerified: Bool` flag — a write that doesn't change IsCharging within one re-read marks unverified (firmware-change canary, surfaced later in get-state). Idempotence: repeated same-command calls write only once. (2) Daemon.swift + main.swift: event loop per SPEC §3 — 30 s DispatchSourceTimer poll, IOPSNotificationCreateRunLoopSource callback, IORegisterForSystemPower sleep/wake (on wake: immediate re-evaluate); each tick: read battery -> decide() (T006) -> apply commands via adapter; load config from SPEC §3 path at startup (create with defaults if absent). Signal handling per SPEC §3: SIGTERM/SIGINT -> setChargingInhibited(false), setAdapterDisabled(false), exit 0. No socket server yet (T009/T010). Daemon refuses to run if geteuid() != 0.",
       "acceptance": "- SMCAdapterTests with a fake SMCWriting: allowlist enforcement (attempting a non-allowlist key traps/asserts in debug — test via the public API only exposing the two setters); idempotence (two setChargingInhibited(true) calls -> exactly one write recorded); fallback (fake reports CHTE missing -> writes go to CH0B AND CH0C); verify-after-write flag flips when fake reader disagrees (contrast: agreeing reader -> verified true)\n- `swift build` + `swift test` green\n- `.build/debug/ampered` run as non-root exits non-zero with a clear message",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (4 contracted files); 82/82 worktree, 97/97 merged; non-root refusal exit 1; byte-exactness vs docs/smc-findings.md confirmed in source (CHTE LE, CHIE 0x08, CH0B/C 0x02 both); key-literal audit: only 5 allowlist keys in file; SIGTERM/SIGINT restore charging+adapter then exit 0. Merged; gate green."
     },
     {
       "id": "T009",
