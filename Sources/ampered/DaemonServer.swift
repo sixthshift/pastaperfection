@@ -88,8 +88,8 @@ public final class DaemonServer {
                 return encodeOrFallback(AckResponse.failure(message))
             }
 
-        case .getStats:
-            return encodeOrFallback(GetStatsResponse.success(daemon.getStats()))
+        case .getStats(let hours):
+            return encodeOrFallback(GetStatsResponse.success(daemon.getStats(hours: hours)))
 
         case .unknown(let cmd):
             // Unreachable in practice — `unknownCommandResponse` above
