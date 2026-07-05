@@ -98,3 +98,28 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        contrast read vs write selectors (not gameable by stub structs)
   attempt: 1/3
   evidence: build exit 0; 10/10 tests; MIT header line 17; merged --no-ff
+
+[0010] T007 — done (attempt 1)
+  decision: continue
+  why: re-verify green incl. LIVE contrast checks (status matches pmset 85==85;
+       root guards fire; keys probe live). Gaming read on write paths: all
+       writeData call sites target SPEC §4 allowlist keys only, root guard
+       precedes any SMC open. Firmware finding: CHTE ui32/4 + CHIE hex_/1
+       present; CH0B/CH0C/CH0I absent (Tahoe layout confirmed pre-gate).
+  attempt: 1/3
+  evidence: merged gate 39/39; CLI smoke on merged tree green
+
+[0011] T005 — done (attempt 1)
+  decision: continue
+  why: re-verify green; scope exact; 20 new contrast tests (set-limit 65 vs 80,
+       heat vs limit pauseReason strings) — codec not gameable by stubs
+  attempt: 1/3
+  evidence: 39/39 on worktree and merged tree
+
+[0012] run — chunk 1 boundary: 6 tickets closed (T001–T005, T007), cap reached
+  decision: end-chunk
+  why: caps.chunk = 6; ending healthy. Phase 0 code complete; [HW] gate is the
+       only open Phase 0 item — charger now attached per user, gate commands
+       handed to human (sudo required, cannot run inside coordinator session).
+  evidence: merged tree: build exit 0, 39 tests/5 suites green; scheduler next
+       ready = T006 (control core), then T008+ after

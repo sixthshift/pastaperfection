@@ -86,7 +86,7 @@
     {
       "id": "T005",
       "title": "Socket protocol codec (JSON lines, request/response types)",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T004"
       ],
@@ -98,7 +98,7 @@
       "context": "Codable request/response types + line codec for the protocol EXACTLY as SPEC §3.1: cmds get-state, set-limit(value), set-config(partial config merge semantics defined here as: only provided fields override), get-config, action(name: discharge-to-limit|top-up|calibrate-start|calibrate-abort), get-stats(hours). Response envelope {ok, data?/error?}. get-state's data payload struct includes: percent, isCharging, externalConnected, chargingPaused, pauseReason (nil|\"limit\"|\"heat\"), adapterDisabled, mode, limit, temperatureC, health{maxCapacity,designCapacity,cycleCount}, calibration (nil or {phase, startedAt}). Pure codec only — no sockets in this ticket (server/client are T009). Unknown cmd decodes to a case that encodes an {ok:false} error response.",
       "acceptance": "- encode/decode round-trip test for every cmd with distinct payloads (contrast: set-limit 65 vs 80 decode to different values)\n- unknown cmd line `{\"cmd\":\"bogus\"}` -> error response with ok:false and non-empty error\n- get-state payload with pauseReason heat vs limit encode to different JSON (assert both strings)\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-05 on worktree: scope exact [Protocol.swift, ProtocolTests.swift]; build exit 0; 39/39 tests (20 new ProtocolTests: per-cmd round-trips w/ contrast, unknown-cmd error, heat-vs-limit pauseReason JSON contrast). Merged to main; merged gate green."
     },
     {
       "id": "T006",
@@ -121,7 +121,7 @@
     {
       "id": "T007",
       "title": "ampere-cli spike commands: keys / status / pause / resume / adapter",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T002",
         "T003"
@@ -134,7 +134,7 @@
       "context": "Extend ampere-cli (stub from T001) with subcommands per SPEC §5 Phase 0. Hand-rolled argument parsing (no dependencies — locked). `status`: read BatteryReader live (no root), print one JSON object {percent, isCharging, externalConnected, temperatureC, cycleCount, maxCapacity, designCapacity}. `keys`: for each allowlist key (CHTE, CH0B, CH0C, CHIE, CH0I — SPEC §4) print exists/type/size from SMC keyInformation (reads are unprivileged). `pause`/`resume`: write charging-inhibit per SPEC §4 fallback order (try CHTE first — probe type via key info and write 1/0 using the probed size; if CHTE missing, write CH0B AND CH0C 0x02/0x00). `adapter off|on`: CHIE 0x08/0x00, fallback CH0I 0x01/0x00. Root guard: geteuid() != 0 for any write command -> print clear error to stderr, exit 1, write nothing. After any write, read back and print the key's new value. IMPORTANT: never write any key outside the SPEC §4 allowlist; print exactly what was written for the human hardware gate.",
       "acceptance": "- `swift build` green, `swift test` green (existing suite must not regress)\n- `.build/debug/ampere-cli status` exits 0 and prints JSON whose percent is 0...100 (verifier cross-checks against `pmset -g batt` percentage ±1 — live contrast, not hardcodable)\n- `.build/debug/ampere-cli keys` exits 0 (no sudo) and prints one line per allowlist key with an exists boolean and, when present, type/size from live key-info\n- `.build/debug/ampere-cli pause` WITHOUT sudo exits 1 with error mentioning root; same for resume / adapter\n(The sudo pause/resume/adapter behavior is the Phase 0 [HW] gate, run by the human — not this ticket's acceptance.)",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-05 on worktree + merged tree: scope exact [main.swift, SpikeCommands.swift]; build exit 0; 19/19 then 39/39 on merge; LIVE: status percent 85 == pmset 85; keys probe: CHTE ui32/4 exists, CHIE hex_/1 exists, CH0B/CH0C/CH0I absent; root guards exit 1 before any SMC open. Gaming read: every writeData site targets allowlist keys only."
     },
     {
       "id": "T008",
