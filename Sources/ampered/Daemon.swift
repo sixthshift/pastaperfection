@@ -29,15 +29,22 @@ public final class Daemon {
     /// Default location of the daemon's config file (SPEC §3).
     public static let defaultConfigURL = URL(fileURLWithPath: "/Library/Application Support/Ampere/config.json")
 
+    /// Default location of the telemetry log (SPEC §3).
+    public static let defaultTelemetryURL = URL(fileURLWithPath: "/Library/Application Support/Ampere/telemetry.jsonl")
+
     private let reader: Reader
     private let adapter: SMCAdapter
     private let configURL: URL
+    private let telemetryLog: TelemetryLog
 
     private var config: Config
     private var state = ControlState()
     /// Most recent battery reading, refreshed on every `evaluate()`. Backs
     /// `get-state`'s live fields (SPEC §3.1) between poll ticks.
     private var lastReading: BatteryReading = BatteryReader.parse([:])
+    /// Counts 30 s poll timer ticks so telemetry samples at every other tick
+    /// (SPEC §3: 60 s cadence) rather than every 30 s poll.
+    private var timerTickCount = 0
 
     private var timerSource: DispatchSourceTimer?
     private var sigTermSource: DispatchSourceSignal?
@@ -57,6 +64,7 @@ public final class Daemon {
     /// live defaults below (nothing overrides them in production).
     public init(
         configURL: URL = Daemon.defaultConfigURL,
+        telemetryURL: URL = Daemon.defaultTelemetryURL,
         reader: @escaping Reader = { BatteryReader.readLive() },
         adapter: SMCAdapter = Daemon.liveAdapter()
     ) {
@@ -64,6 +72,7 @@ public final class Daemon {
         self.reader = reader
         self.adapter = adapter
         self.config = Daemon.loadOrCreateConfig(at: configURL)
+        self.telemetryLog = TelemetryLog(url: telemetryURL)
     }
 
     /// Builds the live SMC-backed adapter, opening the hardware connection
@@ -145,10 +154,36 @@ public final class Daemon {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 30, repeating: 30)
         timer.setEventHandler { [weak self] in
-            self?.evaluate()
+            self?.handleTimerTick()
         }
         timer.resume()
         timerSource = timer
+    }
+
+    /// Every 30 s tick re-evaluates; every *other* tick (60 s cadence, SPEC
+    /// §3: "one sample/60 s") also appends a telemetry sample.
+    private func handleTimerTick() {
+        evaluate()
+        timerTickCount += 1
+        if timerTickCount % 2 == 0 {
+            sampleTelemetry()
+        }
+    }
+
+    /// Appends the current battery reading + charging-paused state to the
+    /// telemetry log (SPEC §3, §5 Phase 3).
+    private func sampleTelemetry() {
+        let reading = lastReading
+        let sample = TelemetrySample(
+            ts: Date(),
+            percent: reading.percent,
+            isCharging: reading.isCharging,
+            temperatureC: reading.temperatureC,
+            amperageMA: reading.amperageMA,
+            voltageMV: reading.voltageMV,
+            chargingPaused: state.isChargingInhibited
+        )
+        telemetryLog.append(sample)
     }
 
     // MARK: Power notifications (SPEC §3: power-source changes + sleep/wake)
@@ -359,10 +394,18 @@ public final class Daemon {
         }
     }
 
-    /// `get-stats` (SPEC §3.1): telemetry sampling is a later ticket (SPEC
-    /// Phase 3) — respond `ok:true` with an empty sample list for now.
-    func getStats() -> StatsPayload {
-        StatsPayload(samples: [])
+    /// `get-stats` (SPEC §3.1): reads persisted telemetry samples from the
+    /// last `hours` hours and projects them to the wire shape (`StatsSample`).
+    func getStats(hours: Int) -> StatsPayload {
+        let samples = telemetryLog.read(hoursBack: Double(hours)).map { sample in
+            StatsSample(
+                timestamp: sample.ts,
+                percent: sample.percent,
+                isCharging: sample.isCharging,
+                temperatureC: sample.temperatureC
+            )
+        }
+        return StatsPayload(samples: samples)
     }
 
     private func persistConfig() {
