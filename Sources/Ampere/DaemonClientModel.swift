@@ -131,6 +131,43 @@ public final class DaemonClientModel: ObservableObject {
         }
     }
 
+    /// Fetches `get-stats` once, off the main thread (SPEC §3.1, ticket
+    /// T015 — Stats window). Unlike `refresh()`'s `fetchState`/`fetchConfig`,
+    /// this isn't part of the 5 s poll cadence — the Stats window calls it
+    /// on demand (open + manual refresh). Returns `nil` on any failure
+    /// (socket absent, connection refused, timeout, malformed response,
+    /// `ok == false`) — never throws out of this method, mirroring the
+    /// never-throws-out contract of `fetchState`/`fetchConfig`.
+    public func getStats(hours: Int) async -> [StatsSample]? {
+        let path = socketPath
+        let timeout = requestTimeout
+        return await Task.detached {
+            Self.fetchStats(hours: hours, socketPath: path, timeout: timeout)
+        }.value
+    }
+
+    /// Pure-ish socket round trip: connect, send `get-stats`, decode the
+    /// response. Any failure maps to `nil` — never throws out of this
+    /// function.
+    nonisolated private static func fetchStats(
+        hours: Int, socketPath: String, timeout: TimeInterval
+    ) -> [StatsSample]? {
+        let client = SocketClient()
+        defer { client.close() }
+        do {
+            try client.connect(path: socketPath)
+            let requestLine = try ProtocolCodec.encodeLine(Request.getStats(hours: hours))
+            let responseLine = try client.request(requestLine, timeout: timeout)
+            let response = try ProtocolCodec.decode(GetStatsResponse.self, from: responseLine)
+            guard response.ok, let data = response.data else {
+                return nil
+            }
+            return data.samples
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Mutations (SPEC §3.1, ticket T012)
     //
     // Every control the popover offers (limit slider, sailing toggle, mode

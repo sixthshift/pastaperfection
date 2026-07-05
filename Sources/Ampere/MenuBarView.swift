@@ -102,6 +102,11 @@ struct MenuBarView: View {
 
             ControlsView(model: model, payload: currentPayload)
 
+            Divider()
+            Button("Stats\u{2026}") {
+                StatsWindowPresenter.show(model: model)
+            }
+
             if LoginItem.isAvailable {
                 Divider()
                 Toggle("Launch at login", isOn: $launchAtLoginEnabled)
