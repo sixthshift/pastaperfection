@@ -267,4 +267,175 @@ import Foundation
 
         #expect(commands.isEmpty)
     }
+
+    // MARK: - Calibration (SPEC §3.3, §5 Phase 4)
+
+    @Test func calibrationHappyPathDischargeChargeHoldDone() {
+        // Calibration starts already at the tail end of a limit-mode
+        // inhibit (a realistic trigger: the battery was capped at the
+        // limit when the user kicked off calibration), so the
+        // discharge → charge transition later has a real inhibit → allow
+        // flip to emit.
+        let start = ControlState(
+            lastCommands: [.inhibitCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .discharge, phaseEnteredAt: Self.fixedNow)
+        )
+
+        // Still discharging at 60%: adapter goes off; nothing to say about
+        // charging yet since it's already recorded inhibited.
+        let (dischargeCommands, afterDischarge) = decide(
+            Self.battery(percent: 60), Self.config(), start, now: Self.fixedNow
+        )
+        #expect(dischargeCommands == [.disableAdapter])
+        #expect(afterDischarge.calibration?.phase == .discharge)
+        #expect(afterDischarge.isAdapterDisabled == true)
+
+        // Hits the 15% floor: transitions to charge and flips the adapter
+        // back on plus allows charging, in the same call.
+        let chargeStart = Self.fixedNow.addingTimeInterval(60)
+        let (chargeEnterCommands, afterChargeEnter) = decide(
+            Self.battery(percent: 15), Self.config(), afterDischarge, now: chargeStart
+        )
+        #expect(Set(chargeEnterCommands) == Set([.enableAdapter, .allowCharging]))
+        #expect(afterChargeEnter.calibration?.phase == .charge)
+        #expect(afterChargeEnter.isAdapterDisabled == false)
+        #expect(afterChargeEnter.isChargingInhibited == false)
+
+        // Reaches 100%: transitions to hold, stamping holdStartedAt.
+        let holdStart = chargeStart.addingTimeInterval(60)
+        let (_, afterHoldEnter) = decide(
+            Self.battery(percent: 100), Self.config(), afterChargeEnter, now: holdStart
+        )
+        #expect(afterHoldEnter.calibration?.phase == .hold)
+        #expect(afterHoldEnter.calibration?.holdStartedAt == holdStart)
+
+        // Contrast: 59 minutes into hold, still holding — calibration
+        // persists and charging stays allowed.
+        let (stillHoldingCommands, stillHolding) = decide(
+            Self.battery(percent: 100), Self.config(), afterHoldEnter,
+            now: holdStart.addingTimeInterval(59 * 60)
+        )
+        #expect(stillHoldingCommands.isEmpty)
+        #expect(stillHolding.calibration?.phase == .hold)
+
+        // 61 minutes into hold: calibration completes and limit rules
+        // resume on this same call (percent 100 is well above the default
+        // limit 80, so it inhibits again).
+        let (doneCommands, done) = decide(
+            Self.battery(percent: 100), Self.config(), afterHoldEnter,
+            now: holdStart.addingTimeInterval(61 * 60)
+        )
+        #expect(done.calibration == nil)
+        #expect(doneCommands == [.inhibitCharging])
+        #expect(done.isChargingInhibited == true)
+    }
+
+    @Test func calibrationFloorAt14MovesOnToChargeNeverDischargingDeeper() {
+        let state = ControlState(
+            lastCommands: [.allowCharging, .disableAdapter],
+            calibration: CalibrationState(phase: .discharge, phaseEnteredAt: Self.fixedNow)
+        )
+        let (_, next) = decide(Self.battery(percent: 14), Self.config(), state, now: Self.fixedNow)
+
+        #expect(next.calibration?.phase == .charge)
+    }
+
+    @Test func calibrationHeatDuringChargePhaseInhibitsWithoutAbortingPhase() {
+        let state = ControlState(
+            lastCommands: [.allowCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .charge, phaseEnteredAt: Self.fixedNow)
+        )
+        let heatConfig = Self.config(heatProtectionEnabled: true, heatThresholdC: 35.0)
+        let (commands, next) = decide(
+            Self.battery(percent: 50, temperatureC: 36.0), heatConfig, state, now: Self.fixedNow
+        )
+
+        #expect(commands == [.inhibitCharging])
+        #expect(next.calibration?.phase == .charge)
+        #expect(next.isChargingInhibited == true)
+    }
+
+    @Test func calibrationNoHeatDuringChargePhaseAllowsCharging() {
+        // Contrast with the 36°C case above: 30°C is well under the
+        // threshold, so charging is allowed and the phase is unaffected.
+        let state = ControlState(
+            lastCommands: [.allowCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .charge, phaseEnteredAt: Self.fixedNow)
+        )
+        let heatConfig = Self.config(heatProtectionEnabled: true, heatThresholdC: 35.0)
+        let (commands, next) = decide(
+            Self.battery(percent: 50, temperatureC: 30.0), heatConfig, state, now: Self.fixedNow
+        )
+
+        #expect(commands.isEmpty)
+        #expect(next.calibration?.phase == .charge)
+        #expect(next.isChargingInhibited == false)
+    }
+
+    @Test func abortDuringDischargeRestoresAdapterAndLimitMode() {
+        let calibrating = ControlState(
+            lastCommands: [.inhibitCharging, .disableAdapter],
+            calibration: CalibrationState(phase: .discharge, phaseEnteredAt: Self.fixedNow)
+        )
+        let aborted = calibrating.abortingCalibration()
+        #expect(aborted.calibration == nil)
+
+        let (commands, next) = decide(Self.battery(percent: 60), Self.config(), aborted, now: Self.fixedNow)
+
+        #expect(commands.contains(.enableAdapter))
+        #expect(next.calibration == nil)
+        #expect(next.isAdapterDisabled == false)
+        #expect(next.oneShotMode == .none)
+    }
+
+    @Test func abortDuringChargeRestoresAdapterAndLimitMode() {
+        let calibrating = ControlState(
+            lastCommands: [.allowCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .charge, phaseEnteredAt: Self.fixedNow)
+        )
+        let aborted = calibrating.abortingCalibration()
+        #expect(aborted.calibration == nil)
+
+        // Adapter is already enabled from the charge phase; abort still
+        // lands correctly in limit mode with no adapter drift.
+        let (_, next) = decide(Self.battery(percent: 70), Self.config(), aborted, now: Self.fixedNow)
+
+        #expect(next.calibration == nil)
+        #expect(next.isAdapterDisabled == false)
+        #expect(next.oneShotMode == .none)
+    }
+
+    @Test func abortDuringHoldRestoresAdapterAndLimitMode() {
+        let calibrating = ControlState(
+            lastCommands: [.allowCharging, .enableAdapter],
+            calibration: CalibrationState(
+                phase: .hold, phaseEnteredAt: Self.fixedNow, holdStartedAt: Self.fixedNow
+            )
+        )
+        let aborted = calibrating.abortingCalibration()
+        #expect(aborted.calibration == nil)
+
+        let (commands, next) = decide(Self.battery(percent: 100), Self.config(), aborted, now: Self.fixedNow)
+
+        // Above the default limit (80) and adapter already enabled: limit
+        // mode reasserts inhibitCharging, and no adapter command is needed.
+        #expect(commands == [.inhibitCharging])
+        #expect(next.calibration == nil)
+        #expect(next.isAdapterDisabled == false)
+        #expect(next.oneShotMode == .none)
+    }
+
+    @Test func unplugDuringDischargeRestoresAdapterAndClearsCalibration() {
+        let calibrating = ControlState(
+            lastCommands: [.inhibitCharging, .disableAdapter],
+            calibration: CalibrationState(phase: .discharge, phaseEnteredAt: Self.fixedNow)
+        )
+        let (commands, next) = decide(
+            Self.battery(percent: 60, externalConnected: false), Self.config(), calibrating, now: Self.fixedNow
+        )
+
+        #expect(commands == [.enableAdapter])
+        #expect(next.calibration == nil)
+        #expect(next.isAdapterDisabled == false)
+    }
 }

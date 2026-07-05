@@ -10,11 +10,10 @@ public enum ChargingCommand: Equatable, Hashable, Sendable {
     case enableAdapter
 }
 
-/// Placeholder for the calibration one-shot state machine (SPEC §3.3, §5
-/// Phase 4: discharge(→15) → charge(→100) → hold(1 h) → done). `decide(...)`
-/// in this ticket always treats a live `ControlState`'s `calibration` field
-/// as absent (`nil`) — a later ticket implements the phase transitions,
-/// floors, and abort handling, extending this same file.
+/// The calibration one-shot state machine (SPEC §3.3, §5 Phase 4:
+/// discharge(→15) → charge(→100) → hold(1 h) → done). `decide(...)` drives
+/// every transition purely off the `now` passed to it — there are no timers
+/// anywhere in this type or in `decide`.
 public struct CalibrationState: Equatable, Sendable {
     public enum Phase: String, Equatable, Sendable {
         case discharge
@@ -24,13 +23,19 @@ public struct CalibrationState: Equatable, Sendable {
     }
 
     public var phase: Phase
-    public var startedAt: Date
-    public var phaseStartedAt: Date
+    /// When the current `phase` was entered. Bookkeeping only; `decide`
+    /// doesn't currently read it for anything but `hold` relies on
+    /// `holdStartedAt` instead so it survives independent of phase re-entry.
+    public var phaseEnteredAt: Date
+    /// Set the moment `phase` becomes `.hold`; `decide` compares `now`
+    /// against `holdStartedAt + 1 hour` to detect hold completion. `nil`
+    /// before hold is reached.
+    public var holdStartedAt: Date?
 
-    public init(phase: Phase, startedAt: Date, phaseStartedAt: Date) {
+    public init(phase: Phase, phaseEnteredAt: Date, holdStartedAt: Date? = nil) {
         self.phase = phase
-        self.startedAt = startedAt
-        self.phaseStartedAt = phaseStartedAt
+        self.phaseEnteredAt = phaseEnteredAt
+        self.holdStartedAt = holdStartedAt
     }
 }
 
@@ -63,8 +68,9 @@ public struct ControlState: Equatable, Sendable {
     /// and at most one of `{.disableAdapter, .enableAdapter}`.
     public var lastCommands: Set<ChargingCommand>
 
-    /// Calibration placeholder (SPEC §3.3, Phase 4) — always `nil` in
-    /// practice until a later ticket implements the state machine.
+    /// The in-progress calibration one-shot (SPEC §3.3, Phase 4), or `nil`
+    /// when calibration isn't running and ordinary limit/sailing/heat/
+    /// one-shot rules govern charging.
     public var calibration: CalibrationState?
 
     public init(
@@ -87,6 +93,19 @@ public struct ControlState: Equatable, Sendable {
     /// Whether the adapter is currently commanded disabled, per `lastCommands`.
     public var isAdapterDisabled: Bool {
         lastCommands.contains(.disableAdapter)
+    }
+
+    /// The explicit, public way to represent a user-requested calibration
+    /// abort (SPEC §3.3, §5 Phase 4 `calibrate-abort`): the daemon calls this
+    /// on the persisted `ControlState` and feeds the result into the next
+    /// `decide(...)` call. Clearing `calibration` is all that's required —
+    /// `decide` already restores limit mode and re-enables the adapter
+    /// idempotently from ordinary `.none`/limit-mode bookkeeping once
+    /// calibration is no longer set, from any phase it was aborted in.
+    public func abortingCalibration() -> ControlState {
+        var copy = self
+        copy.calibration = nil
+        return copy
     }
 }
 
@@ -144,18 +163,29 @@ public func decide(
     // No external power: nothing to control. A discharge one-shot has
     // nothing left to accomplish (the Mac is already running on battery),
     // so it cancels back to limit mode. Top-up is left as-is — nothing in
-    // SPEC §3.3 says unplugging should cancel it.
+    // SPEC §3.3 says unplugging should cancel it. Calibration aborts too,
+    // in any phase (SPEC §3.3 abort semantics): clearing `calibration` and
+    // re-enabling the adapter here is the "immediate restore"; ordinary
+    // `.none`/limit-mode bookkeeping (below, on a later call once power is
+    // back) takes it the rest of the way.
     guard battery.externalConnected else {
         if next.oneShotMode == .discharging {
             next.oneShotMode = .none
         }
+        if next.calibration != nil {
+            next.calibration = nil
+            emitAdapter(disabled: false)
+        }
         next.lastCommands = lastCommands
-        return ([], next)
+        return (commands, next)
     }
 
     // Heat protection: its own hysteresis band, evaluated independent of
     // everything else below. While active it forces charging inhibited,
-    // overriding limit/sailing hysteresis and one-shot modes alike.
+    // overriding limit/sailing hysteresis and one-shot modes alike —
+    // including calibration's charge/hold phases (heat always wins for
+    // charging; it does not abort calibration, so the phase itself is left
+    // untouched below).
     if config.heatProtectionEnabled {
         if battery.temperatureC >= config.heatThresholdC {
             next.heatInhibited = true
@@ -166,6 +196,61 @@ public func decide(
         // was (it started as a copy of `state.heatInhibited`).
     } else {
         next.heatInhibited = false
+    }
+
+    // Calibration (SPEC §3.3, §5 Phase 4): while running, it drives the
+    // decision instead of the one-shot/limit switch below. Every phase
+    // advance is evaluated purely from `battery.percent` and `now` on this
+    // call — no timers, no background scheduling.
+    if var calibration = next.calibration {
+        switch calibration.phase {
+        case .discharge:
+            // Floor 15%: at or under 15 move on to charge — covers both the
+            // exact floor and any overshoot below it (e.g. 14). Never wait
+            // for a lower percent; the battery must never be driven deeper.
+            if battery.percent <= 15 {
+                calibration.phase = .charge
+                calibration.phaseEnteredAt = now
+            }
+        case .charge:
+            if battery.percent >= 100 {
+                calibration.phase = .hold
+                calibration.phaseEnteredAt = now
+                calibration.holdStartedAt = now
+            }
+        case .hold:
+            if let holdStartedAt = calibration.holdStartedAt,
+               now.timeIntervalSince(holdStartedAt) >= 3600 {
+                calibration.phase = .done
+            }
+        case .done:
+            break
+        }
+
+        if calibration.phase == .done {
+            // Calibration complete: hand off to ordinary limit-mode rules
+            // on this very call — no waiting for a further tick.
+            next.calibration = nil
+            next.oneShotMode = .none
+        } else {
+            next.calibration = calibration
+            switch calibration.phase {
+            case .discharge:
+                // Adapter off and charging explicitly marked inhibited: the
+                // Mac runs purely on battery, so both hardware keys agree.
+                emitAdapter(disabled: true)
+                emitCharging(inhibited: true)
+            case .charge, .hold:
+                emitAdapter(disabled: false)
+                // Heat always wins for charging, even mid-calibration; it
+                // never changes `calibration.phase` itself (handled above).
+                emitCharging(inhibited: next.heatInhibited)
+            case .done:
+                break // unreachable — handled above
+            }
+            next.lastCommands = lastCommands
+            return (commands, next)
+        }
     }
 
     if next.heatInhibited {
