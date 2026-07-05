@@ -259,3 +259,10 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   why: re-verify green; oldest-dropped assertion present (red-team finding 6
        guard held); injectable cap for testability without 20k-line fixtures
   evidence: 104/104 worktree + merged
+
+[0030] T018 — done (attempt 1)
+  decision: continue
+  why: re-verify green; worker correctly identified pre-existing action
+       handlers (T010 overlap) and added only the missing scheduler/sidecar/
+       shutdown pieces — no duplication; all guards grep-verified
+  evidence: 104/104 worktree + merged

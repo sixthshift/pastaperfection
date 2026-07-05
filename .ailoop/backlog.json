@@ -331,7 +331,7 @@
     {
       "id": "T018",
       "title": "Daemon calibration wiring: actions, monthly schedule, state reporting",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T017",
         "T010"
@@ -344,7 +344,7 @@
       "context": "Wire calibration end-to-end in the daemon: action calibrate-start seeds ControlState.calibration (only when externalConnected, else ok:false error 'charger required'); calibrate-abort clears it via the T017 abort path; get-state's calibration field reports {phase, startedAt} live. Monthly schedule: when calibrationScheduleEnabled and today is calibrationDayOfMonth (check once per hour, persist lastCalibrationDate in config file to fire at most once per month) and charger attached -> auto-start. SIGTERM restore path (T008) must also clear calibration (verify it enables adapter — it already does).",
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: calibrate-start rejects when externalConnected false; lastCalibrationDate persisted; once-per-month guard present\n- loopback-style test where feasible: DaemonServer handler unit test (canned state) returns ok:false for calibrate-start when unplugged, ok:true when plugged (contrast)\n([HW] start/abort live check is the Phase 4 gate.)",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact [Daemon.swift]; 104/104; diff contract met: 5 schedule guards (enabled/day/charger/not-running/month-granularity lastCalibrationDate), hourly throttle, sidecar persistence, shutdown clears calibration via abortingCalibration(); worker honestly reported start/abort already existed from T010 and did not duplicate. Merged; gate green."
     },
     {
       "id": "T019",
