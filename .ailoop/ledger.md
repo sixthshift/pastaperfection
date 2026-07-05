@@ -145,3 +145,15 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   attempt: 1/3
   evidence: dry-runs CHTE [01 00 00 00] / [00 00 00 00], CHIE [08]/[00];
        39/39 on worktree and merged tree
+
+[0015] phase-0 — CLOSE: all oracle checks green (gate re-run after T020)
+  decision: close-phase
+  why: every Phase 0 check in oracle.md now passed on the merged tree:
+       baseline 39/39; status==pmset ±1 (85==85, verified live); keys probe
+       lists allowlist with live key-info; root guards exit 1; [HW] pause →
+       "95%; AC attached; not charging" with CHTE readback [01 00 00 00];
+       [HW] resume restores (readback [00 00 00 00], exit 0; charging
+       confirmed resumed in earlier run); [HW] adapter off/on → Battery
+       Power/AC Power flips both ways; docs/smc-findings.md records the
+       confirmed key table. GO decision for the project.
+  evidence: user-run gate transcripts (2026-07-05); docs/smc-findings.md

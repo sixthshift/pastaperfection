@@ -19,11 +19,11 @@ Later SMC-touching tickets MUST follow this table (SPEC §7).
   - `[08]` → adapter electrically off: `pmset` flips to "Now drawing from 'Battery
     Power'; discharging" while physically plugged in.
   - `[00]` → adapter back on: "AC Power" restored.
-- **CHTE (charging inhibit) — byte order matters, LITTLE-ENDIAN:**
-  - `[00 00 00 01]` (big-endian 1) → REJECTED, smcResult 137. Confirmed live.
-  - `[00 00 00 00]` → accepted (allow charging).
-  - `[01 00 00 00]` (little-endian 1) → the encoding OpenDente's helper writes for
-    inhibit; pending live confirmation in the gate re-run (T020).
+- **CHTE (charging inhibit) — CONFIRMED WORKING 2026-07-05, LITTLE-ENDIAN:**
+  - `[01 00 00 00]` → charging inhibited: `pmset` shows "AC attached; not
+    charging" at 95% while plugged in; readback `[01 00 00 00]`; exit 0.
+  - `[00 00 00 00]` → charging allowed (resume); readback confirmed; exit 0.
+  - `[00 00 00 01]` (big-endian 1) → REJECTED, smcResult 137. Never write BE.
 
 ## Notes
 
