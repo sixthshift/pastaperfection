@@ -282,3 +282,23 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        completion rather than abandoned in-flight (per SKILL.md: never
        abandon in-flight work). Chunk 4 = T019 + T021, the final two.
   evidence: merged tree 113 tests/12 suites green
+
+[0033] T019 — done (attempt 1)
+  decision: continue
+  evidence: 113/113 worktree; contract greps pass
+
+[0034] T021 — done (attempt 1, repair)
+  decision: continue
+  why: SPEC §1.6 wattage gap closed end-to-end; backward-compatible decode
+  evidence: 114/114 worktree + merged
+
+[0035] run — BACKLOG DRAINED: 21/21 tickets done, all baseline + autonomous
+       phase checks green on the merged tree
+  decision: final-report
+  why: every ticket independently re-verified; remaining oracle items are the
+       [HW] human-present checks for Phases 1-4 (install/limit/sleep, socket
+       round-trip via UI, heat trigger, calibrate start/abort), which require
+       the user at the machine with charger + sudo.
+  evidence: 114 tests/12 suites; dist/Ampere.app builds + codesigns; app
+       alive daemon-absent; pause --dry-run prints CHTE [01 00 00 00];
+       cli status matches live battery (100%, unplugged)

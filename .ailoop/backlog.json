@@ -349,7 +349,7 @@
     {
       "id": "T019",
       "title": "Calibration UI: start/abort + progress in popover",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T018",
         "T012"
@@ -361,7 +361,7 @@
       "context": "In ControlsView (heat UI from T016 already present — do not disturb it): a 'Calibrate now' button (disabled when daemon unavailable, unplugged, or already calibrating — derive from get-state) issuing calibrate-start; while get-state.calibration != nil show progress row 'Calibrating — <phase> (started <relative time>)' + an Abort button issuing calibrate-abort; a small toggle for calibrationScheduleEnabled + day-of-month stepper 1...28 -> set-config. All through DaemonClientModel.",
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: button disabled-states derived from live state (three conditions), phase text from calibration.phase (not hardcoded), stepper bounds 1...28, all mutations via DaemonClientModel\n- `.build/debug/Ampere` still launches daemon-absent",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact [ControlsView.swift]; 113/113; three live disabled-conditions grep-verified, phase from calibration.phase, stepper 1...28, zero SocketClient in view; app alive daemon-absent."
     },
     {
       "id": "T020",
@@ -383,7 +383,7 @@
     {
       "id": "T021",
       "title": "Wattage in stats: extend StatsSample with amperage/voltage end-to-end",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T014",
         "T015"
@@ -398,7 +398,7 @@
       "context": "T015 shipped the stats window but the wattage tile is hardcoded N/A because Protocol.swift StatsSample carries no amperage/voltage (T005 predates telemetry). Fix end-to-end: (1) add amperageMA: Int and voltageMV: Int to StatsSample in Protocol.swift with decodeIfPresent defaults 0 (backward compatible — old daemons omit them); update ProtocolTests round-trip accordingly. (2) Daemon.getStats projection (Sources/ampered/Daemon.swift) passes TelemetrySample.amperageMA/voltageMV through. (3) StatsView wattsText: latest sample from the already-fetched stats -> StatsFormatting.watts(amperageMA:voltageMV:); keep N/A only when no samples exist.",
       "acceptance": "- ProtocolTests: StatsSample round-trip includes amperageMA/voltageMV; decoding a sample JSON WITHOUT those keys still succeeds with 0 defaults (contrast)\n- verifier diff: Daemon projection passes both fields; StatsView computes watts from latest sample via StatsFormatting.watts, N/A only when samples empty\n- swift build + bash scripts/test.sh green (113 must not regress)",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (4 files); 114/114 (new absent-keys default test + extended round-trip); StatsView watts from latest sample via StatsFormatting.watts; decodeIfPresent ?? 0 backward compatible."
     }
   ]
 }
