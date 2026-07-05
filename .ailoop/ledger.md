@@ -310,3 +310,14 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        harness beats hand-copied command blocks and is re-runnable after
        future macOS updates (firmware-canary drills).
   evidence: bash -n clean; release build + signed bundle rebuilt at drain
+
+[0037] phase-1 — [HW] gate RED at socket-state check; repair T022 spawned
+  decision: decompose (repair)
+  why: errno 13 EACCES — daemon socket root:wheel 0660, unprivileged staff
+       user cannot connect; SPEC §3 locks root:staff. Root cause: coordinator
+       ticket text told T009/T010 builders "ownership happens naturally" — a
+       wrong assumption that no autonomous check could catch (needs root).
+       Escaped-bug rule: hw-gate.sh IS the strengthened check (it caught it);
+       repair also fixes the misleading ENOENT-vs-EACCES client error.
+  evidence: user gate transcript (errno 13); connect() perms require write
+       on socket inode; natural root group on macOS is wheel

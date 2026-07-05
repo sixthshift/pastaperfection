@@ -399,6 +399,25 @@
       "acceptance": "- ProtocolTests: StatsSample round-trip includes amperageMA/voltageMV; decoding a sample JSON WITHOUT those keys still succeeds with 0 defaults (contrast)\n- verifier diff: Daemon projection passes both fields; StatsView computes watts from latest sample via StatsFormatting.watts, N/A only when samples empty\n- swift build + bash scripts/test.sh green (113 must not regress)",
       "attempts": [],
       "evidence": "re-verify 2026-07-06: scope exact (4 files); 114/114 (new absent-keys default test + extended round-trip); StatsView watts from latest sample via StatsFormatting.watts; decodeIfPresent ?? 0 backward compatible."
+    },
+    {
+      "id": "T022",
+      "title": "Repair: socket group must be staff (EACCES for unprivileged clients) + honest connect errors",
+      "status": "todo",
+      "depends_on": [
+        "T010"
+      ],
+      "files": [
+        "Sources/ampered/DaemonServer.swift",
+        "Sources/ampered/Daemon.swift",
+        "Sources/AmpereCore/SocketClient.swift",
+        "Sources/ampere-cli/InstallCommands.swift"
+      ],
+      "origin": "repair: Phase 1 [HW] gate red — ampere-cli state errno 13 (EACCES): socket is root:wheel 0660, spec requires root:staff",
+      "context": "hw-gate found unprivileged clients cannot connect: daemon (root) binds /var/run/ampere.sock which lands root:wheel 0660; SPEC 3 locks root:staff 0660. The T009/T010 briefs wrongly said ownership happens naturally. Fix: after the socket server starts, the daemon chowns the socket to uid 0 / gid of group staff (getgrnam(\"staff\")?.pointee.gr_gid, fallback gid 20) keeping mode 0660. Also: SocketClient/cli currently report EACCES with a misleading no-socket message - make the error distinguish ENOENT (daemon not running) from EACCES (permission denied - socket group mismatch, suggests reinstalling/restarting daemon).",
+      "acceptance": "- diff shows chown(path, 0, staffGid) (or equivalent) after server start in daemon code, mode still 0660\n- connect error for EACCES mentions permission, ENOENT mentions not running (distinct messages)\n- swift build + bash scripts/test.sh green (114 must not regress)\n- final confirmation is the user re-running scripts/hw-gate.sh",
+      "attempts": [],
+      "evidence": null
     }
   ]
 }
