@@ -214,3 +214,10 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        daemon loop, socket layer, app shell, calibration machine all merged.
   evidence: merged tree 97 tests/8 suites green; scheduler next: T010
        (install/uninstall + socket wiring) unblocks the Phase 1 [HW] gate
+
+[0023] T012 — ticket enrichment before dispatch (chunk 3 start)
+  decision: continue
+  why: T012's acceptance requires all mutations to route through
+       DaemonClientModel, but T011 built the model read-only; the model file
+       must be in T012's contract to add send methods. Files contract
+       extended by one file; still disjoint from T010/T013.

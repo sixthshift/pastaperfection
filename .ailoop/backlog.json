@@ -227,7 +227,8 @@
       ],
       "files": [
         "Sources/Ampere/ControlsView.swift",
-        "Sources/Ampere/MenuBarView.swift"
+        "Sources/Ampere/MenuBarView.swift",
+        "Sources/Ampere/DaemonClientModel.swift"
       ],
       "origin": "spec §5 Phase 2",
       "context": "ControlsView inside the popover (wired into MenuBarView's placeholder from T011): limit Slider 50...100 step 5 with live % label -> set-limit on release (debounced, not per-tick); sailing Toggle + offset Stepper (5...20) -> set-config; buttons 'Discharge to limit' and 'Top up to 100%' -> action cmds, disabled when daemon unavailable or already in that one-shot mode (read from get-state mode field); an 'Off' toggle mapping to config.mode off|limit with a caution footnote. All mutations go through DaemonClientModel (T011) — no new socket code. Show pauseReason ('Paused: heat') and the writeVerified canary ('⚠︎ charge control may be broken by a macOS update') when false.",
