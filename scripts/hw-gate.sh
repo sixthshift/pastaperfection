@@ -35,7 +35,14 @@ if [ $? -eq 0 ] && echo "$STATE" | grep -q '"percent"'; then
   pass "state over socket: $(echo "$STATE" | head -c 120)..."
 else fail "state failed: $STATE"; fi
 
-say "Phase 1: limit enforcement (battery above limit -> not charging)"
+say "Phase 1: socket preflight (everything below needs it)"
+if req '{"cmd":"get-state"}' | grep -q '"ok":true'; then
+  pass "socket answers get-state"
+else
+  fail "cannot talk to daemon socket ($(ls -la "$SOCK" 2>&1)) — remaining checks will fail; fix the socket group first"
+fi
+
+say "Phase 1: limit enforcement (battery above limit -> charging inhibited)"
 PCT=$(pmset -g batt | grep -oE '[0-9]+%' | tr -d '%')
 LIMIT=$(( PCT > 80 ? 80 : PCT - 10 ))
 req "{\"cmd\":\"set-limit\",\"value\":$LIMIT}" >/dev/null
@@ -43,9 +50,12 @@ echo "battery ${PCT}%, limit set to ${LIMIT}% — waiting up to 60 s for inhibit
 OK=""
 for _ in $(seq 1 12); do
   sleep 5
+  # Authoritative signal: the daemon's own chargingPaused. pmset's "not
+  # charging" is secondary — at 100% a full battery reads "charged" either way.
+  if req '{"cmd":"get-state"}' | grep -q '"chargingPaused":true'; then OK=1; break; fi
   if pmset -g batt | grep -qi "not charging"; then OK=1; break; fi
 done
-if [ -n "$OK" ]; then pass "pmset shows 'not charging' with charger attached"; else
+if [ -n "$OK" ]; then pass "charging inhibited (chargingPaused/pmset) with charger attached"; else
   fail "charging not inhibited within 60 s (pmset: $(pmset -g batt | tail -1))"; fi
 
 say "Phase 2: socket round-trip (set-limit 65 -> get-state reflects 65)"
@@ -69,7 +79,10 @@ if [ -n "$OK" ]; then pass "pauseReason == heat"; else fail "heat pause not obse
 req '{"cmd":"set-config","config":{"heatThresholdC":35}}' >/dev/null
 
 say "Phase 3: stats vs ioreg"
-CY_IOREG=$(ioreg -rn AppleSmartBattery | grep -m1 '"CycleCount"' | grep -oE '[0-9]+')
+# Match only the top-level '"CycleCount" = N' line — ioreg also embeds a
+# CycleCount inside one-line nested dictionaries (BatteryData), which is why
+# a loose grep returns garbage.
+CY_IOREG=$(ioreg -rn AppleSmartBattery | grep -E '^[[:space:]|]*"CycleCount" = [0-9]+$' | grep -oE '[0-9]+$' | head -1)
 CY_STATE=$(req '{"cmd":"get-state"}' | grep -oE '"cycleCount":[0-9]+' | cut -d: -f2)
 if [ "$CY_IOREG" = "$CY_STATE" ]; then pass "cycle count matches ioreg ($CY_STATE)"; else
   fail "cycle count mismatch: ioreg=$CY_IOREG state=$CY_STATE"; fi

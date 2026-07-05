@@ -321,3 +321,14 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        repair also fixes the misleading ENOENT-vs-EACCES client error.
   evidence: user gate transcript (errno 13); connect() perms require write
        on socket inode; natural root group on macOS is wheel
+
+[0038] run — gate rerun red as expected (T022 not yet merged); two gate-script
+       defects found and fixed
+  decision: amend-oracle (mechanical — tooling only, checks' meaning unchanged)
+  why: (1) ioreg CycleCount grep matched a nested one-line dictionary ->
+       garbage; now anchored to the top-level line (verified locally: prints
+       one number). (2) limit check ambiguous at 100% ("charged" masks
+       inhibit); now uses daemon get-state chargingPaused as the
+       authoritative signal with pmset secondary. Added socket preflight so
+       a perms failure fails fast instead of cascading.
+  evidence: user gate transcript 2026-07-06; bash -n clean
