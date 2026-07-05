@@ -35,10 +35,14 @@ public final class Daemon {
 
     private var config: Config
     private var state = ControlState()
+    /// Most recent battery reading, refreshed on every `evaluate()`. Backs
+    /// `get-state`'s live fields (SPEC §3.1) between poll ticks.
+    private var lastReading: BatteryReading = BatteryReader.parse([:])
 
     private var timerSource: DispatchSourceTimer?
     private var sigTermSource: DispatchSourceSignal?
     private var sigIntSource: DispatchSourceSignal?
+    private var daemonServer: DaemonServer?
 
     // IOKit power notification plumbing, kept alive for the process lifetime
     // (their run loop sources only fire while these are retained).
@@ -104,6 +108,7 @@ public final class Daemon {
         installPowerNotifications()
         evaluate()
         installTimer()
+        installSocketServer()
         CFRunLoopRun()
     }
 
@@ -111,9 +116,27 @@ public final class Daemon {
 
     private func evaluate() {
         let reading = reader()
+        lastReading = reading
         let (commands, next) = decide(reading.state, config, state, now: Date())
         adapter.apply(commands)
         state = next
+    }
+
+    // MARK: Socket server (SPEC §3, §3.1)
+
+    /// Starts `DaemonServer` at `/var/run/ampere.sock` after the rest of
+    /// setup (config load, first `evaluate()`, timer) is in place. A failure
+    /// here is logged, not fatal — SPEC §1's safe-state invariant already
+    /// holds via `evaluate()`/signal handling regardless of whether the
+    /// socket is reachable.
+    private func installSocketServer() {
+        let server = DaemonServer(daemon: self)
+        do {
+            try server.start()
+            daemonServer = server
+        } catch {
+            FileHandle.standardError.write(Data("ampered: warning: failed to start socket server: \(error)\n".utf8))
+        }
     }
 
     // MARK: Timer (30 s poll, SPEC §3)
@@ -224,8 +247,125 @@ public final class Daemon {
     /// SPEC §1 (locked): "every failure path ends with charging enabled."
     /// Restore charging + adapter to the stock-Mac safe state, then exit 0.
     private func restoreAndExit() -> Never {
+        daemonServer?.stop()
         adapter.setChargingInhibited(false)
         adapter.setAdapterDisabled(false)
         exit(0)
+    }
+
+    // MARK: - Socket command handlers (SPEC §3.1), invoked by `DaemonServer`
+    //
+    // `DaemonServer` routes every handler call through `DispatchQueue.main
+    // .sync`, and `evaluate()`/the timer/signal/power-notification callbacks
+    // above all already run on the main thread/queue (SPEC §3: the daemon's
+    // run loop lives there) — so these methods never race `evaluate()` or
+    // each other.
+
+    /// `get-state` (SPEC §3.1): assembled from the latest battery reading,
+    /// `state`/`config`, and the adapter's write-verification canary.
+    func getStatePayload() -> GetStatePayload {
+        let reading = lastReading
+        let paused = state.isChargingInhibited
+        let pauseReason: PauseReason? = paused ? (state.heatInhibited ? .heat : .limit) : nil
+
+        return GetStatePayload(
+            percent: reading.percent,
+            isCharging: reading.isCharging,
+            externalConnected: reading.externalConnected,
+            chargingPaused: paused,
+            pauseReason: pauseReason,
+            adapterDisabled: state.isAdapterDisabled,
+            mode: currentModeString,
+            limit: config.limitPercent,
+            temperatureC: reading.temperatureC,
+            health: HealthPayload(
+                maxCapacity: reading.appleRawMaxCapacity,
+                designCapacity: reading.designCapacity,
+                cycleCount: reading.cycleCount
+            ),
+            calibration: state.calibration.map {
+                CalibrationPayload(phase: $0.phase.rawValue, startedAt: $0.phaseEnteredAt)
+            },
+            writeVerified: adapter.lastWriteVerified
+        )
+    }
+
+    /// The runtime `mode` string on the `get-state` payload (SPEC §3.2:
+    /// one-shot states are runtime, not config): calibration and one-shot
+    /// modes take priority over `config.mode` ("limit"/"off").
+    private var currentModeString: String {
+        if state.calibration != nil { return "calibrating" }
+        switch state.oneShotMode {
+        case .discharging: return "discharging"
+        case .toppingUp: return "topping-up"
+        case .none: return config.mode
+        }
+    }
+
+    /// `set-limit` (SPEC §3.1): clamp via `Config.settingLimit`, persist,
+    /// immediate re-evaluate.
+    func setLimit(_ value: Int) {
+        config.limitPercent = Config.settingLimit(value)
+        persistConfig()
+        evaluate()
+    }
+
+    /// `set-config` (SPEC §3.1): merge only the provided fields, persist,
+    /// re-evaluate.
+    func setConfig(_ partial: PartialConfig) {
+        config = partial.merged(onto: config)
+        persistConfig()
+        evaluate()
+    }
+
+    /// `get-config` (SPEC §3.1).
+    func getConfig() -> Config {
+        config
+    }
+
+    /// Outcome of an `action` command (SPEC §3.1): success, or a clear
+    /// failure message (e.g. `calibrate-start` without a charger attached).
+    enum ActionOutcome {
+        case success
+        case failure(String)
+    }
+
+    /// `action` (SPEC §3.1): `discharge-to-limit` / `top-up` set the
+    /// corresponding `ControlState.oneShotMode`; `calibrate-start` requires
+    /// `externalConnected` (else `ok:false "charger required"`) and seeds
+    /// calibration; `calibrate-abort` clears it. Every branch re-evaluates
+    /// immediately so the new mode takes effect on this same command.
+    func performAction(_ name: ActionName) -> ActionOutcome {
+        switch name {
+        case .dischargeToLimit:
+            state.oneShotMode = .discharging
+            evaluate()
+            return .success
+        case .topUp:
+            state.oneShotMode = .toppingUp
+            evaluate()
+            return .success
+        case .calibrateStart:
+            guard lastReading.externalConnected else {
+                return .failure("charger required")
+            }
+            state.calibration = CalibrationState(phase: .discharge, phaseEnteredAt: Date())
+            evaluate()
+            return .success
+        case .calibrateAbort:
+            state = state.abortingCalibration()
+            evaluate()
+            return .success
+        }
+    }
+
+    /// `get-stats` (SPEC §3.1): telemetry sampling is a later ticket (SPEC
+    /// Phase 3) — respond `ok:true` with an empty sample list for now.
+    func getStats() -> StatsPayload {
+        StatsPayload(samples: [])
+    }
+
+    private func persistConfig() {
+        try? config.save(to: configURL)
     }
 }
