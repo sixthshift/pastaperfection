@@ -180,3 +180,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        full restore. Tests enumerate the spec contrast table — not gameable.
   attempt: 1/3
   evidence: 58/58 on worktree and merged tree; merged --no-ff
+
+[0019] T011 — done (attempt 1)
+  decision: continue
+  why: re-verify green incl. live launch-alive check with socket absent;
+       scope exact; glyph distinctness asserted as a Set (not gameable by
+       duplicate symbols)
+  attempt: 1/3
+  evidence: 72/72 worktree + merged tree; alive after 3 s, SIGTERM clean

@@ -201,7 +201,7 @@
     {
       "id": "T011",
       "title": "MenuBarExtra app shell + daemon client view model + status glyph logic",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T009"
       ],
@@ -216,7 +216,7 @@
       "context": "Replace T001's Ampere stub with a real SwiftUI MenuBarExtra app (SPEC §2): @main App with MenuBarExtra(.window style), NSApp.setActivationPolicy(.accessory) at launch. DaemonClientModel: ObservableObject polling get-state via SocketClient every 5 s while the popover is closed-cheap (timer) and immediately on open; gracefully handles daemon-absent (connection refused -> state .daemonUnavailable). MenuBarView: menu bar label shows percent + glyph; popover shows current state summary and (until T012) a placeholder section. StatusFormatting.swift in AmpereCore (pure, tested): func glyph(for state) -> String over SF Symbol names — charging -> bolt variants, paused-at-limit -> pause variant, discharging(adapter off) -> distinct glyph, daemonUnavailable -> exclamation variant; func label(percent) -> \"75%\". Keep it small; controls land in T012.",
       "acceptance": "- StatusFormattingTests: four contrasting states (charging / paused limit / adapter-off discharge / daemon unavailable) map to FOUR DISTINCT symbol names; label(75) == \"75%\"\n- `swift build` + `swift test` green\n- `.build/debug/Ampere` launches without crashing when the daemon socket is absent (verifier: run with a 5 s timeout, expect it still alive when killed, exit via signal — no crash log)",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (5 contracted files); build exit 0; 72/72 (7 new StatusFormattingTests incl. pairwise-distinct glyph set); app launches and stays alive 3s with socket absent, clean SIGTERM; DaemonClientModel @MainActor with Task.detached socket I/O, defaults to daemonUnavailable. Merged; gate green."
     },
     {
       "id": "T012",
