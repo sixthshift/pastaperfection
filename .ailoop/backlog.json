@@ -403,7 +403,7 @@
     {
       "id": "T022",
       "title": "Repair: socket group must be staff (EACCES for unprivileged clients) + honest connect errors",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T010"
       ],
@@ -417,7 +417,7 @@
       "context": "hw-gate found unprivileged clients cannot connect: daemon (root) binds /var/run/ampere.sock which lands root:wheel 0660; SPEC 3 locks root:staff 0660. The T009/T010 briefs wrongly said ownership happens naturally. Fix: after the socket server starts, the daemon chowns the socket to uid 0 / gid of group staff (getgrnam(\"staff\")?.pointee.gr_gid, fallback gid 20) keeping mode 0660. Also: SocketClient/cli currently report EACCES with a misleading no-socket message - make the error distinguish ENOENT (daemon not running) from EACCES (permission denied - socket group mismatch, suggests reinstalling/restarting daemon).",
       "acceptance": "- diff shows chown(path, 0, staffGid) (or equivalent) after server start in daemon code, mode still 0660\n- connect error for EACCES mentions permission, ENOENT mentions not running (distinct messages)\n- swift build + bash scripts/test.sh green (114 must not regress)\n- final confirmation is the user re-running scripts/hw-gate.sh",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (3 files); 114/114; chown guarded by geteuid()==0 with getgrnam(staff) + gid-20 fallback, re-chmod 0660; ENOENT/EACCES messages distinct — EACCES variant verified LIVE against the machine's actual root:daemon socket. Merged; release rebuilt."
     }
   ]
 }

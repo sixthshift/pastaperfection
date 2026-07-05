@@ -332,3 +332,12 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        authoritative signal with pmset secondary. Added socket preflight so
        a perms failure fails fast instead of cascading.
   evidence: user gate transcript 2026-07-06; bash -n clean
+
+[0039] T022 — done (attempt 1, repair)
+  decision: continue
+  why: re-verify green; the live EACCES reproduction on this machine's
+       still-buggy socket doubles as a behavioral test of the new error
+       path; chown is root-only so unprivileged loopback tests unaffected.
+       Awaiting user gate re-run for the end-to-end confirmation.
+  attempt: 1/3
+  evidence: 114/114; live 'permission denied … socket group mismatch' exit 1
