@@ -247,7 +247,8 @@
         "scripts/make-app.sh",
         "Sources/Ampere/LoginItem.swift",
         "Sources/Ampere/InstallPromptView.swift",
-        "README.md"
+        "README.md",
+        "Sources/Ampere/MenuBarView.swift"
       ],
       "origin": "spec §2, §5 Phase 2, §8",
       "context": "(1) scripts/make-app.sh: swift build -c release, assemble dist/Ampere.app (Contents/MacOS/Ampere from release binary, Contents/Info.plist with CFBundleIdentifier com.ampere.app, CFBundleName Ampere, LSUIElement true, LSMinimumSystemVersion 14.0), `codesign -s - --force dist/Ampere.app`. Idempotent (rm -rf dist/Ampere.app first). (2) LoginItem.swift: SMAppService.mainApp register/unregister behind a toggle in the popover; when running as a bare binary (no bundle), hide the toggle (Bundle.main.bundleIdentifier == nil check). (3) InstallPromptView.swift: shown by MenuBarView when state == .daemonUnavailable — explains the one-time step and shows the copyable command: sudo <path>/ampere-cli install --binary <path>/ampered. (4) README.md: what Ampere is, build steps, install/uninstall, the SPEC §8 warning that macOS Settings > Battery charge limit must stay off/100%, and the firmware-canary explanation.",

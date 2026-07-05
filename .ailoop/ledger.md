@@ -221,3 +221,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        DaemonClientModel, but T011 built the model read-only; the model file
        must be in T012's contract to add send methods. Files contract
        extended by one file; still disjoint from T010/T013.
+
+[0024] chunk 3 — dispatch note: T012 and T013 intentionally overlap on
+       MenuBarView.swift (T013 needs to wire InstallPromptView + login toggle)
+  decision: continue (deviation from strict disjointness, acknowledged)
+  why: both edits are small and target different branches of the view
+       hierarchy; merge order T012 -> T013; if the textual conflict is
+       non-trivial at merge, per SKILL.md the conflicting ticket is
+       re-dispatched serially instead of hand-merging semantics.
