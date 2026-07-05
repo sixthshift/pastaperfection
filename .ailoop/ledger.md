@@ -136,3 +136,12 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   evidence: user-run gate transcript (pmset flips for CHIE both ways; CHTE
        error 137); OpenDente HelperDelegate.swift:262-263 writes [01 00 00 00];
        docs/smc-findings.md created with confirmed table
+
+[0014] T020 — done (attempt 1, repair)
+  decision: continue
+  why: re-verify green; dry-run assertion prints derive from the same
+       chteBytes()/adapter byte helpers as the real writes — the strengthened
+       check is structurally tied to behavior. Root guard unchanged.
+  attempt: 1/3
+  evidence: dry-runs CHTE [01 00 00 00] / [00 00 00 00], CHIE [08]/[00];
+       39/39 on worktree and merged tree
