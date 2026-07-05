@@ -278,7 +278,7 @@
     {
       "id": "T015",
       "title": "Stats window: health, cycles, temperature, wattage, 24 h charts",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T011",
         "T014"
@@ -293,7 +293,7 @@
       "context": "StatsView opened from a 'Stats…' button in the popover (openWindow — add a Window scene to AmpereApp if needed via MenuBarView plumbing; keep AmpereApp changes minimal and inside MenuBarView.swift/StatsView.swift if possible, else declare AmpereApp.swift in files via decomposition — prefer NSWindow-hosted SwiftUI to avoid touching AmpereApp.swift). Content: header tiles (Health % = maxCapacity/designCapacity, cycle count, current temp, current watts) + two Swift Charts over get-stats(24h): percent-over-time line, temperature-over-time line. StatsFormatting.swift (AmpereCore, tested): healthPercent(max:design:) rounded to 1 dp; watts(amperageMA:voltageMV:) = a*v/1e6 signed, formatted '+12.3 W'/'-8.9 W'; downsample([TelemetrySample], to: n) picking evenly spaced samples for chart perf.",
       "acceptance": "- StatsFormattingTests: healthPercent(4382, 5088) == 86.1; watts(1250, 12600) == '+15.8 W' and watts(-890, 12200) == '-10.9 W' (contrast signs); downsample of 2,000 fixtures to 200 returns 200 evenly spaced (first == first, last == last)\n- `swift build` + `swift test` green\n- `.build/debug/Ampere` still launches daemon-absent",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (5 files); 113/113 worktree + merged; acceptance values exact (86.1, +15.8 W, -10.9 W, downsample endpoints); NSWindow presenter avoids AmpereApp change; wattage tile N/A pending T021 (protocol lacks amperage fields — honest degradation, not fabrication)."
     },
     {
       "id": "T016",
@@ -379,6 +379,26 @@
       "acceptance": "- .build/debug/ampere-cli pause --dry-run (no sudo) exits 0 printing CHTE [01 00 00 00]\n- resume --dry-run prints CHTE [00 00 00 00]\n- adapter off --dry-run prints CHIE [08]; adapter on --dry-run prints CHIE [00]\n- pause (no --dry-run, no sudo) still exits 1 mentioning root\n- swift build + bash scripts/test.sh green (39 tests, no regressions)",
       "attempts": [],
       "evidence": "re-verify 2026-07-05: scope exactly [SpikeCommands.swift]; build exit 0; 39/39; dry-runs print CHTE [01 00 00 00]/[00 00 00 00], CHIE [08]/[00]; root guard intact; dry-run shares chteBytes() with real write path (check cannot drift). Merged; merged gate green."
+    },
+    {
+      "id": "T021",
+      "title": "Wattage in stats: extend StatsSample with amperage/voltage end-to-end",
+      "status": "todo",
+      "depends_on": [
+        "T014",
+        "T015"
+      ],
+      "files": [
+        "Sources/AmpereCore/Protocol.swift",
+        "Tests/AmpereCoreTests/ProtocolTests.swift",
+        "Sources/ampered/Daemon.swift",
+        "Sources/Ampere/StatsView.swift"
+      ],
+      "origin": "repair: SPEC §1.6 wattage feature gap found at T015 (StatsSample lacks amperage/voltage)",
+      "context": "T015 shipped the stats window but the wattage tile is hardcoded N/A because Protocol.swift StatsSample carries no amperage/voltage (T005 predates telemetry). Fix end-to-end: (1) add amperageMA: Int and voltageMV: Int to StatsSample in Protocol.swift with decodeIfPresent defaults 0 (backward compatible — old daemons omit them); update ProtocolTests round-trip accordingly. (2) Daemon.getStats projection (Sources/ampered/Daemon.swift) passes TelemetrySample.amperageMA/voltageMV through. (3) StatsView wattsText: latest sample from the already-fetched stats -> StatsFormatting.watts(amperageMA:voltageMV:); keep N/A only when no samples exist.",
+      "acceptance": "- ProtocolTests: StatsSample round-trip includes amperageMA/voltageMV; decoding a sample JSON WITHOUT those keys still succeeds with 0 defaults (contrast)\n- verifier diff: Daemon projection passes both fields; StatsView computes watts from latest sample via StatsFormatting.watts, N/A only when samples empty\n- swift build + bash scripts/test.sh green (113 must not regress)",
+      "attempts": [],
+      "evidence": null
     }
   ]
 }

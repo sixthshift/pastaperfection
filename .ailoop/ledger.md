@@ -266,3 +266,19 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        handlers (T010 overlap) and added only the missing scheduler/sidecar/
        shutdown pieces — no duplication; all guards grep-verified
   evidence: 104/104 worktree + merged
+
+[0031] T015 — done (attempt 1); spec-gap repair T021 spawned
+  decision: continue + decompose (repair)
+  why: re-verify green; worker correctly refused to touch out-of-contract
+       Protocol.swift and degraded wattage to N/A instead of fabricating.
+       SPEC §1.6 lists wattage as a product feature -> T021 closes the gap
+       end-to-end (protocol fields + daemon projection + tile).
+  evidence: 113/113 worktree + merged; StatsView.swift:85 documented N/A
+
+[0032] run — chunk 3 boundary: 7 tickets closed (T010, T012, T013, T016,
+       T014, T018, T015) — one over cap (final batch dispatched at 5 closed)
+  decision: end-chunk
+  why: batch [T015, T018] was dispatched while under cap and judged to
+       completion rather than abandoned in-flight (per SKILL.md: never
+       abandon in-flight work). Chunk 4 = T019 + T021, the final two.
+  evidence: merged tree 113 tests/12 suites green
