@@ -215,11 +215,13 @@ import Foundation
     @Test func statsPayloadRoundTrips() throws {
         let sample1 = StatsSample(
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
-            percent: 60, isCharging: true, temperatureC: 28.5
+            percent: 60, isCharging: true, temperatureC: 28.5,
+            amperageMA: 1200, voltageMV: 12500
         )
         let sample2 = StatsSample(
             timestamp: Date(timeIntervalSince1970: 1_700_000_060),
-            percent: 61, isCharging: true, temperatureC: 28.6
+            percent: 61, isCharging: true, temperatureC: 28.6,
+            amperageMA: -800, voltageMV: 12600
         )
         let payload = StatsPayload(samples: [sample1, sample2])
         let response = GetStatsResponse.success(payload)
@@ -230,6 +232,24 @@ import Foundation
         #expect(decoded.data?.samples.count == 2)
         #expect(decoded.data?.samples.first?.percent == 60)
         #expect(decoded.data?.samples.last?.percent == 61)
+        #expect(decoded.data?.samples.first?.amperageMA == 1200)
+        #expect(decoded.data?.samples.first?.voltageMV == 12500)
+        #expect(decoded.data?.samples.last?.amperageMA == -800)
+        #expect(decoded.data?.samples.last?.voltageMV == 12600)
+    }
+
+    /// Old telemetry/wire payloads recorded before `amperageMA`/`voltageMV`
+    /// were added to `StatsSample` must still decode, defaulting the new
+    /// fields to `0` (matching `Config`'s defaulting style).
+    @Test func statsSampleDecodesWithoutAmperageVoltageKeys() throws {
+        let json = """
+        {"timestamp":"2023-11-14T22:13:20Z","percent":60,"isCharging":true,"temperatureC":28.5}
+        """
+        let decoded = try ProtocolCodec.decode(StatsSample.self, from: json)
+
+        #expect(decoded.percent == 60)
+        #expect(decoded.amperageMA == 0)
+        #expect(decoded.voltageMV == 0)
     }
 
     // MARK: - Response envelope shape

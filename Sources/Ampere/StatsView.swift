@@ -76,13 +76,13 @@ struct StatsView: View {
     }
 
     /// Current wattage tile. SPEC §5 Phase 3 wants `Amperage x Voltage /
-    /// 1e6` (`StatsFormatting.watts`), sourced from `get-state` or (if
-    /// absent there) the most recent `get-stats` sample. Neither
-    /// `GetStatePayload` nor `StatsSample` carries amperage/voltage on the
-    /// wire today — extending `Protocol.swift` is out of scope for this
-    /// ticket's file contract — so this degrades gracefully to "N/A" until
-    /// a later ticket adds those fields to the protocol.
-    private var wattsText: String { "N/A" }
+    /// 1e6` (`StatsFormatting.watts`), computed from the most recently
+    /// fetched `get-stats` sample. Shows "N/A" only when no samples have
+    /// been fetched yet.
+    private var wattsText: String {
+        guard let latest = samples.last else { return "N/A" }
+        return StatsFormatting.watts(amperageMA: latest.amperageMA, voltageMV: latest.voltageMV)
+    }
 
     private var downsampledSamples: [StatsSample] {
         StatsFormatting.downsample(samples, to: statsChartMaxPoints)
