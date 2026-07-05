@@ -8,11 +8,32 @@ import Darwin
 /// `ProtocolCodec` themselves.
 public final class SocketClient {
     /// Errors from connecting or exchanging a request. Carries the raw
-    /// `errno` (where applicable) for diagnostics.
+    /// `errno` (where applicable) for diagnostics, plus `kind` so callers
+    /// (the CLI) can tell an honest "daemon not running" (ENOENT) apart from
+    /// a socket permission mismatch (EACCES, SPEC §3: root:staff 0660)
+    /// without re-parsing `message`.
     public struct ClientError: Error, CustomStringConvertible, Equatable {
+        public enum Kind: Equatable {
+            /// `connect()` failed with ENOENT: no socket file at the path —
+            /// the daemon genuinely isn't running (or hasn't created it yet).
+            case socketNotFound
+            /// `connect()` failed with EACCES: the socket exists but this
+            /// caller's group doesn't match its owning group — a real
+            /// permission mismatch, not "not running".
+            case permissionDenied
+            /// Any other errno (from `connect()` or elsewhere).
+            case other(errno: Int32)
+            /// Not a connect-errno case (e.g. write/read/timeout failures).
+            case none
+        }
+
         public let message: String
+        public let kind: Kind
         public var description: String { message }
-        public init(_ message: String) { self.message = message }
+        public init(_ message: String, kind: Kind = .none) {
+            self.message = message
+            self.kind = kind
+        }
     }
 
     private var fd: Int32 = -1
@@ -51,7 +72,21 @@ public final class SocketClient {
         guard connectResult == 0 else {
             let err = errno
             Darwin.close(sock)
-            throw ClientError("connect() failed: errno \(err)")
+            switch err {
+            case ENOENT:
+                throw ClientError(
+                    "daemon not running (no socket at \(path))",
+                    kind: .socketNotFound
+                )
+            case EACCES:
+                throw ClientError(
+                    "permission denied connecting to \(path) — socket group mismatch; "
+                        + "try reinstalling the daemon (sudo ampere-cli uninstall && install)",
+                    kind: .permissionDenied
+                )
+            default:
+                throw ClientError("connect() failed: errno \(err)", kind: .other(errno: err))
+            }
         }
 
         self.fd = sock

@@ -18,6 +18,7 @@
 //
 
 import AmpereCore
+import Darwin
 import Dispatch
 import Foundation
 
@@ -29,9 +30,15 @@ public final class DaemonServer {
     public static let defaultSocketPath = "/var/run/ampere.sock"
     public static let defaultMode: mode_t = 0o660
 
+    /// Fallback gid for the "staff" group (stock macOS assigns `staff` gid
+    /// 20) used only if `getgrnam("staff")` can't resolve it at runtime.
+    private static let fallbackStaffGID: gid_t = 20
+
     private let server: SocketServer
+    private let path: String
 
     public init(daemon: Daemon, path: String = DaemonServer.defaultSocketPath) {
+        self.path = path
         self.server = SocketServer(path: path, mode: DaemonServer.defaultMode) { line in
             DispatchQueue.main.sync {
                 DaemonServer.handle(line, daemon: daemon)
@@ -40,9 +47,35 @@ public final class DaemonServer {
     }
 
     /// Starts accepting connections (SPEC §3.1). Throws if the socket can't
-    /// be created/bound.
+    /// be created/bound. Once the socket file exists, fixes up its group
+    /// ownership to `staff` (SPEC §3: root:staff 0660) — `bind()` otherwise
+    /// leaves it owned by whatever group `/var/run` inherits (root:daemon on
+    /// this machine), which locks out unprivileged (staff-group) clients
+    /// with EACCES even though the file exists.
     public func start() throws {
         try server.start()
+        applySocketOwnership()
+    }
+
+    /// Root-only and best-effort: the daemon runs as root in production, so
+    /// this always applies there; socket loopback tests run this same code
+    /// unprivileged in temp dirs, where `geteuid() != 0` makes this a no-op
+    /// (chown would fail anyway) so it never perturbs those tests' sockets.
+    private func applySocketOwnership() {
+        guard geteuid() == 0 else { return }
+
+        let staffGID: gid_t
+        if let group = getgrnam("staff") {
+            staffGID = group.pointee.gr_gid
+        } else {
+            staffGID = DaemonServer.fallbackStaffGID
+        }
+
+        // Best-effort: tolerate failure silently (SPEC §1 spirit — a socket
+        // ownership hiccup shouldn't take down the daemon); `chmod` re-
+        // asserts mode 0660 in case `chown` reset any bits.
+        _ = chown(path, 0, staffGID)
+        _ = chmod(path, DaemonServer.defaultMode)
     }
 
     /// Stops accepting connections, closes existing ones, and removes the

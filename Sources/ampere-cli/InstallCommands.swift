@@ -138,9 +138,12 @@ public enum InstallCommands {
         do {
             try client.connect(path: socketPath)
         } catch {
-            writeStderr(
-                "ampere-cli: daemon not running (no socket at \(socketPath)): \(error)\n"
-            )
+            // `SocketClient.ClientError`'s message already distinguishes
+            // "not running" (ENOENT) from "permission denied" (EACCES,
+            // SPEC §3 socket group mismatch) from a generic errno — print
+            // it verbatim rather than re-wrapping it into one blanket
+            // "daemon not running" message.
+            writeStderr("ampere-cli: \(error)\n")
             return 1
         }
         defer { client.close() }
