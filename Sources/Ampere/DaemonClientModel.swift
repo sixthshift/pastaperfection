@@ -22,6 +22,11 @@ public final class DaemonClientModel: ObservableObject {
     public static let defaultPollInterval: TimeInterval = 5.0
 
     @Published public private(set) var viewState: ViewState = .daemonUnavailable
+    /// Last successfully fetched `get-config` (SPEC §3.2). `nil` until the
+    /// first fetch succeeds (or after a fetch failure); used by the popover
+    /// (`ControlsView`) to read sailing settings, which aren't part of
+    /// `GetStatePayload`. Fetched alongside `get-state` on every `refresh()`.
+    @Published public private(set) var config: Config?
 
     private let socketPath: String
     private let pollInterval: TimeInterval
@@ -74,9 +79,11 @@ public final class DaemonClientModel: ObservableObject {
         let path = socketPath
         let timeout = requestTimeout
         Task.detached {
-            let result = Self.fetchState(socketPath: path, timeout: timeout)
+            let stateResult = Self.fetchState(socketPath: path, timeout: timeout)
+            let configResult = Self.fetchConfig(socketPath: path, timeout: timeout)
             await MainActor.run { [weak self] in
-                self?.viewState = result
+                self?.viewState = stateResult
+                self?.config = configResult
             }
         }
     }
@@ -99,6 +106,93 @@ public final class DaemonClientModel: ObservableObject {
             return .state(data)
         } catch {
             return .daemonUnavailable
+        }
+    }
+
+    /// Pure-ish socket round trip: connect, send `get-config`, decode the
+    /// response. `nil` on any failure — mirrors `fetchState`'s
+    /// never-throws-out contract. `ControlsView` falls back to `Config`'s
+    /// own defaults when this is `nil` (e.g. before the first successful
+    /// fetch, or while the daemon is unreachable).
+    nonisolated private static func fetchConfig(socketPath: String, timeout: TimeInterval) -> Config? {
+        let client = SocketClient()
+        defer { client.close() }
+        do {
+            try client.connect(path: socketPath)
+            let requestLine = try ProtocolCodec.encodeLine(Request.getConfig)
+            let responseLine = try client.request(requestLine, timeout: timeout)
+            let response = try ProtocolCodec.decode(GetConfigResponse.self, from: responseLine)
+            guard response.ok, let data = response.data else {
+                return nil
+            }
+            return data
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Mutations (SPEC §3.1, ticket T012)
+    //
+    // Every control the popover offers (limit slider, sailing toggle, mode
+    // off/on, one-shot actions) goes through one of these methods — views
+    // never construct `SocketClient` themselves. Each sends its request off
+    // the main thread via `Task.detached` (so a slow/unavailable daemon never
+    // blocks the UI), then calls `refresh()` on the main actor afterward so
+    // `viewState` reflects the daemon's new authoritative state rather than
+    // an optimistic local guess. Send failures are swallowed the same way
+    // `fetchState` swallows them: the follow-up `refresh()` will surface
+    // `.daemonUnavailable` on its own if the daemon is actually gone.
+
+    /// Sends `set-limit` with the clamped (50-100) slider value. Callers
+    /// (the slider's `onEditingChanged`) are responsible for only calling
+    /// this on release, not per-tick.
+    public func setLimit(_ value: Int) {
+        sendAckRequest(.setLimit(value: value))
+    }
+
+    /// Sends `set-config` with a partial config patch (only the fields the
+    /// caller sets are non-nil on `PartialConfig`, so unrelated config
+    /// fields are left untouched by the daemon's merge).
+    public func setConfig(_ config: PartialConfig) {
+        sendAckRequest(.setConfig(config: config))
+    }
+
+    /// Sends a one-shot `action` command (`discharge-to-limit`, `top-up`,
+    /// `calibrate-start`, `calibrate-abort`).
+    public func sendAction(_ name: ActionName) {
+        sendAckRequest(.action(name: name))
+    }
+
+    /// Shared plumbing for the ack-only mutation requests above: encode,
+    /// send off the main thread, ignore the response body (mutations here
+    /// only care whether the daemon is reachable — the follow-up `refresh()`
+    /// is what actually updates `viewState`), then refresh.
+    private func sendAckRequest(_ request: Request) {
+        let path = socketPath
+        let timeout = requestTimeout
+        Task.detached {
+            Self.send(request, socketPath: path, timeout: timeout)
+            await MainActor.run { [weak self] in
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Pure-ish socket round trip for a mutating request: connect, send,
+    /// decode as an ack response. Never throws out of this function —
+    /// failures are swallowed here because the subsequent `refresh()` is the
+    /// single source of truth for whether the daemon is reachable.
+    nonisolated private static func send(_ request: Request, socketPath: String, timeout: TimeInterval) {
+        let client = SocketClient()
+        defer { client.close() }
+        do {
+            try client.connect(path: socketPath)
+            let requestLine = try ProtocolCodec.encodeLine(request)
+            _ = try client.request(requestLine, timeout: timeout)
+        } catch {
+            // Swallowed: refresh() (called by the caller after this returns)
+            // will resolve viewState to .daemonUnavailable if the daemon is
+            // truly unreachable.
         }
     }
 }

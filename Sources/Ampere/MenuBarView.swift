@@ -58,11 +58,23 @@ struct MenuBarLabel: View {
 }
 
 /// The popover content (`.menuBarExtraStyle(.window)`): a state summary
-/// (percent, charging/paused/discharging line, limit) plus a placeholder
-/// "Controls coming soon" section — a later ticket replaces the placeholder
-/// with the limit slider / mode toggles / action buttons (SPEC §5 Phase 2).
+/// (percent, charging/paused/discharging line, limit) plus `ControlsView`
+/// (limit slider / sailing toggle / action buttons / off toggle — SPEC §5
+/// Phase 2, ticket T012). `ControlsView` always renders (even while the
+/// daemon is unreachable, with its controls disabled) so the popover layout
+/// doesn't jump if the daemon appears/disappears mid-session.
 struct MenuBarView: View {
     @ObservedObject var model: DaemonClientModel
+
+    /// The last known `get-state` payload, or `nil` while the daemon is
+    /// unreachable — handed to `ControlsView` so its controls can render
+    /// disabled instead of disappearing.
+    private var currentPayload: GetStatePayload? {
+        if case let .state(payload) = model.viewState {
+            return payload
+        }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -89,9 +101,7 @@ struct MenuBarView: View {
 
             Divider()
 
-            Text("Controls coming soon")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            ControlsView(model: model, payload: currentPayload)
         }
         .padding()
         .frame(minWidth: 240)
