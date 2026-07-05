@@ -8,7 +8,7 @@ Frozen means never *silently* changed (see SKILL.md amendment tiers).
 Authoritative source: `SPEC.md` (repo root). Binding summary:
 
 - Swift + SPM only, tools-version 6.0, **`swiftLanguageMode(.v5)` on every target**,
-  min `macOS(.v14)`, **XCTest**, **zero third-party dependencies** (SPEC §2).
+  min `macOS(.v14)`, **Swift Testing** (amended, see ledger 0004), **zero third-party dependencies** (SPEC §2).
 - Targets exactly: `AmpereCore` (lib), `ampered` (root daemon), `Ampere` (MenuBarExtra
   app), `ampere-cli`, `AmpereCoreTests` (SPEC §2).
 - Architecture: daemon owns ALL SMC writes; app/cli talk to it over
@@ -36,8 +36,11 @@ Authoritative source: `SPEC.md` (repo root). Binding summary:
 Run from repo root (`~/Projects/ampere`):
 
 - [ ] build: `swift build` → exit 0
-- [ ] full test suite: `swift test` → exit 0, all tests pass
-- [ ] new behavior ships with new XCTests, green under the above
+- [ ] full test suite: `bash scripts/test.sh` → exit 0, all tests pass
+      (canonical runner; plain `swift test` does NOT work on this CLT-only
+      machine — see ledger 0005. Wherever this oracle or a ticket says
+      `swift test`, run `bash scripts/test.sh`.)
+- [ ] new behavior ships with new Swift Testing tests, green under the above
       (exempt: pure scaffold/config tickets that say so)
 
 No lint configured (locked: none in v1).
@@ -66,7 +69,7 @@ merged tree.
 - [ ] control-core test suite covers the SPEC §3.3 decision table (hysteresis
       boundary cases 79/80/75 for limit 80, heat override, discharge floor,
       top-up completion) — tests enumerate contrasting inputs → differing commands
-- [ ] socket loopback XCTest: real unix socket in temp dir, request → response
+- [ ] socket loopback Swift Testing test: real unix socket in temp dir, request → response
       round-trip for get-state/set-limit/error case
 - [ ] `ampere-cli install --dry-run` prints plist path + bootstrap command
 - [ ] **[HW]** `sudo ampere-cli install` → `launchctl print system/com.ampere.daemon`
@@ -82,13 +85,13 @@ merged tree.
       launches showing menu bar item
 
 ### Phase 3 — Heat + stats
-- [ ] telemetry ring-cap XCTest: >20,000 lines → file capped
+- [ ] telemetry ring-cap Swift Testing test: >20,000 lines → file capped
 - [ ] **[HW]** heatThresholdC set below current temp → `get-state` shows paused,
       reason heat, ≤60 s; cycles/capacity in stats match `ioreg -rn AppleSmartBattery`
 - [ ] Stats window renders 24 h chart from telemetry fixture
 
 ### Phase 4 — Calibration
-- [ ] calibration state machine fully covered by XCTests: discharge→charge→hold→done,
+- [ ] calibration state machine fully covered by Swift Testing tests: discharge→charge→hold→done,
       abort from every phase restores limit mode, floors enforced (contrast cases)
 - [ ] **[HW]** `action calibrate-start` → state `calibrating/discharge`, adapter
       disabled; `calibrate-abort` → limit mode, adapter enabled

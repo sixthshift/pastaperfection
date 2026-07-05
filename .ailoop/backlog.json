@@ -5,26 +5,43 @@
     "Workers read SPEC.md and .ailoop/oracle.md in the repo; contexts cite sections."
   ],
   "project": "ampere",
-  "caps": { "maxAttempts": 3, "thrash": 2, "chunk": 6 },
+  "caps": {
+    "maxAttempts": 3,
+    "thrash": 2,
+    "chunk": 6
+  },
   "tickets": [
     {
       "id": "T001",
       "title": "SPM package scaffold with all five targets",
-      "status": "todo",
+      "status": "done",
       "depends_on": [],
-      "files": ["Package.swift", ".gitignore", "Sources/AmpereCore/Version.swift", "Sources/ampered/main.swift", "Sources/Ampere/AmpereApp.swift", "Sources/ampere-cli/main.swift", "Tests/AmpereCoreTests/ScaffoldTests.swift"],
+      "files": [
+        "Package.swift",
+        ".gitignore",
+        "Sources/AmpereCore/Version.swift",
+        "Sources/ampered/main.swift",
+        "Sources/Ampere/AmpereApp.swift",
+        "Sources/ampere-cli/main.swift",
+        "Tests/AmpereCoreTests/ScaffoldTests.swift"
+      ],
       "origin": "spec §2",
-      "context": "Greenfield repo at ~/Projects/ampere (SPEC.md + docs/ exist, no Swift code). Create the SPM package per SPEC §2, exactly: swift-tools-version 6.0; targets AmpereCore (library), ampered (executable), Ampere (executable), ampere-cli (executable), AmpereCoreTests (XCTest, depends on AmpereCore); every target gets swiftSettings: [.swiftLanguageMode(.v5)]; platforms [.macOS(.v14)]. Each executable main is a compilable stub (print a version line sourced from AmpereCore Version.swift; Ampere's stub may be a plain main.swift-style entry for now — the real MenuBarExtra comes in T011, keep the file named AmpereApp.swift with a minimal @main struct that just runs). .gitignore: .build/, dist/, .DS_Store, *.xcodeproj. This is pure scaffold — exempt from the new-tests rule, but include one trivial XCTest (Version string non-empty) so `swift test` exercises the test target.",
+      "context": "Greenfield repo at ~/Projects/ampere (SPEC.md + docs/ exist, no Swift code). Create the SPM package per SPEC §2, exactly: swift-tools-version 6.0; targets AmpereCore (library), ampered (executable), Ampere (executable), ampere-cli (executable), AmpereCoreTests (Swift Testing, depends on AmpereCore); every target gets swiftSettings: [.swiftLanguageMode(.v5)]; platforms [.macOS(.v14)]. Each executable main is a compilable stub (print a version line sourced from AmpereCore Version.swift; Ampere's stub may be a plain main.swift-style entry for now — the real MenuBarExtra comes in T011, keep the file named AmpereApp.swift with a minimal @main struct that just runs). .gitignore: .build/, dist/, .DS_Store, *.xcodeproj. This is pure scaffold — exempt from the new-tests rule, but include one trivial Swift Testing test (Version string non-empty) so `swift test` exercises the test target.",
       "acceptance": "- `swift build` exit 0\n- `swift test` exit 0 with the Version test passing\n- `swift package describe --type json` lists targets AmpereCore, ampered, Ampere, ampere-cli, AmpereCoreTests\n- `.build/debug/ampere-cli` runs and prints a version line",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-05: swift build exit 0; bash scripts/test.sh -> 1/1 passed (Swift Testing per amendment 0004); swift package describe targets = Ampere, AmpereCore, AmpereCoreTests, ampere-cli, ampered; .build/debug/ampere-cli -> \"ampere-cli 0.0.1\"; scope clean (only contracted files)"
     },
     {
       "id": "T002",
       "title": "SMC IOKit client in AmpereCore (port from vendored bclm-SMC.swift)",
       "status": "todo",
-      "depends_on": ["T001"],
-      "files": ["Sources/AmpereCore/SMC.swift", "Tests/AmpereCoreTests/SMCTests.swift"],
+      "depends_on": [
+        "T001"
+      ],
+      "files": [
+        "Sources/AmpereCore/SMC.swift",
+        "Tests/AmpereCoreTests/SMCTests.swift"
+      ],
       "origin": "spec §4, §5 Phase 0",
       "context": "Port docs/reference/bclm-SMC.swift (SMCKit, MIT — KEEP the MIT license header in the ported file) into Sources/AmpereCore/SMC.swift as public API. Required surface: open/close connection to the AppleSMC IOService; readData(key) -> (bytes, type, size); writeData(key, bytes); keyInformation(key) -> (type, size) or nil if the key doesn't exist; a FourCharCode conversion for 4-char string keys. Trim what we don't need (fan/temperature convenience APIs) but keep the 80-byte SMCParamStruct and the IOConnectCallStructMethod selector-2 plumbing intact. Do NOT hardcode any charging keys here — this is a generic client; the allowlist enforcement comes later (SPEC §4). No writes are performed in tests (tests must run without root and without touching hardware).",
       "acceptance": "- unit test: fourCharCode(\"CHTE\") == 0x43485445 and fourCharCode(\"CH0B\") == 0x43483042, and decoding back yields the strings\n- unit test: MemoryLayout<SMCParamStruct>.size == 80\n- unit test: constructing a read/write param struct for a known key sets the key field and data size correctly (inspect struct fields, contrast read vs write command bytes)\n- `swift build` + `swift test` green",
@@ -35,8 +52,14 @@
       "id": "T003",
       "title": "BatteryState model + AppleSmartBattery reader with injectable parser",
       "status": "todo",
-      "depends_on": ["T001"],
-      "files": ["Sources/AmpereCore/BatteryState.swift", "Sources/AmpereCore/BatteryReader.swift", "Tests/AmpereCoreTests/BatteryReaderTests.swift"],
+      "depends_on": [
+        "T001"
+      ],
+      "files": [
+        "Sources/AmpereCore/BatteryState.swift",
+        "Sources/AmpereCore/BatteryReader.swift",
+        "Tests/AmpereCoreTests/BatteryReaderTests.swift"
+      ],
       "origin": "spec §3.3, §4",
       "context": "Two pieces. (1) BatteryState.swift: the frozen struct from SPEC §3.3 (percent, isCharging, externalConnected, temperatureC) plus an extended BatteryReading that also carries cycleCount, appleRawMaxCapacity, designCapacity, amperageMA, voltageMV (SPEC §4 key list). (2) BatteryReader.swift: parse(_ dict: [String: Any]) -> BatteryReading — pure, injectable for tests — plus a live path that fetches the AppleSmartBattery IORegistry service dictionary via IOServiceGetMatchingService/IORegistryEntryCreateCFProperties (no root needed). Temperature key is centi-degrees C: 3011 -> 30.11. Missing keys -> sensible defaults + a `complete: Bool` flag, never a crash.",
       "acceptance": "- fixture test A (charging): dict {CurrentCapacity:62, IsCharging:true, ExternalConnected:true, Temperature:3011, CycleCount:412, AppleRawMaxCapacity:4382, DesignCapacity:5088, Amperage:1250, Voltage:12600} parses to percent 62, charging true, temperatureC 30.11, watts computable\n- fixture test B (discharging): IsCharging:false, ExternalConnected:false, Amperage:-890 parses with negative amperage and externalConnected false — outputs must differ from A in exactly those fields\n- fixture test C: empty dict -> complete == false, no crash\n- `swift build` + `swift test` green",
@@ -47,8 +70,13 @@
       "id": "T004",
       "title": "Config model (Codable, defaults, clamping, persistence helpers)",
       "status": "todo",
-      "depends_on": ["T001"],
-      "files": ["Sources/AmpereCore/Config.swift", "Tests/AmpereCoreTests/ConfigTests.swift"],
+      "depends_on": [
+        "T001"
+      ],
+      "files": [
+        "Sources/AmpereCore/Config.swift",
+        "Tests/AmpereCoreTests/ConfigTests.swift"
+      ],
       "origin": "spec §3.2",
       "context": "Config exactly per SPEC §3.2: limitPercent(80), sailingEnabled(false), sailingOffset(5), heatProtectionEnabled(true), heatThresholdC(35.0), calibrationScheduleEnabled(false), calibrationDayOfMonth(1), mode(\"limit\" | \"off\"). All fields must decode with defaults when absent (decodeIfPresent pattern) so old config files never fail. Provide load(from url:)/save(to url:) helpers (atomic write) and a `settingLimit(_:)` that clamps to 50...100. Do not touch /Library paths in tests — tests use temp dir URLs.",
       "acceptance": "- decode test: `{}` yields every default listed above\n- decode test: `{\"limitPercent\": 60}` yields 60 with other defaults intact (contrast with previous)\n- clamp test: settingLimit(101) == 100, settingLimit(10) == 50, settingLimit(75) == 75\n- round-trip: save then load in temp dir preserves all fields\n- `swift build` + `swift test` green",
@@ -59,8 +87,13 @@
       "id": "T005",
       "title": "Socket protocol codec (JSON lines, request/response types)",
       "status": "todo",
-      "depends_on": ["T004"],
-      "files": ["Sources/AmpereCore/Protocol.swift", "Tests/AmpereCoreTests/ProtocolTests.swift"],
+      "depends_on": [
+        "T004"
+      ],
+      "files": [
+        "Sources/AmpereCore/Protocol.swift",
+        "Tests/AmpereCoreTests/ProtocolTests.swift"
+      ],
       "origin": "spec §3.1",
       "context": "Codable request/response types + line codec for the protocol EXACTLY as SPEC §3.1: cmds get-state, set-limit(value), set-config(partial config merge semantics defined here as: only provided fields override), get-config, action(name: discharge-to-limit|top-up|calibrate-start|calibrate-abort), get-stats(hours). Response envelope {ok, data?/error?}. get-state's data payload struct includes: percent, isCharging, externalConnected, chargingPaused, pauseReason (nil|\"limit\"|\"heat\"), adapterDisabled, mode, limit, temperatureC, health{maxCapacity,designCapacity,cycleCount}, calibration (nil or {phase, startedAt}). Pure codec only — no sockets in this ticket (server/client are T009). Unknown cmd decodes to a case that encodes an {ok:false} error response.",
       "acceptance": "- encode/decode round-trip test for every cmd with distinct payloads (contrast: set-limit 65 vs 80 decode to different values)\n- unknown cmd line `{\"cmd\":\"bogus\"}` -> error response with ok:false and non-empty error\n- get-state payload with pauseReason heat vs limit encode to different JSON (assert both strings)\n- `swift build` + `swift test` green",
@@ -71,11 +104,17 @@
       "id": "T006",
       "title": "Pure control core: decide() for limit/sailing/heat/discharge/top-up",
       "status": "todo",
-      "depends_on": ["T003", "T004"],
-      "files": ["Sources/AmpereCore/ControlCore.swift", "Tests/AmpereCoreTests/ControlCoreTests.swift"],
+      "depends_on": [
+        "T003",
+        "T004"
+      ],
+      "files": [
+        "Sources/AmpereCore/ControlCore.swift",
+        "Tests/AmpereCoreTests/ControlCoreTests.swift"
+      ],
       "origin": "spec §3.3",
       "context": "THE core ticket. Implement SPEC §3.3 exactly: ChargingCommand enum, ControlState struct (current one-shot mode: none|discharging|toppingUp, plus lastCommands for idempotence bookkeeping; include a calibration placeholder field `calibration: CalibrationState?` typed but always nil for now — the calibration rules are a later ticket and will extend this file), and pure func decide(BatteryState, Config, ControlState, now: Date) -> (commands: [ChargingCommand], next: ControlState). Frozen decision rules are in SPEC §3.3 — implement the decision table literally, including: hysteresis (inhibit at >= limit, allow at <= limit-5 or limit-sailingOffset when sailing, in-between keeps previous), heat always wins (>= threshold forces inhibit, releases at threshold-2), discharge-to-limit with hard floor 20 (floor breach -> enableAdapter+allowCharging+revert to limit mode), top-up until >=100 or (!isCharging && >=99), externalConnected==false emits no hardware commands, mode==off emits allowCharging+enableAdapter once then nothing.",
-      "acceptance": "Contrast table tests, at minimum (limit 80, sailing off, heat off unless stated):\n- percent 79 charging, no prior inhibit -> no inhibit command\n- percent 80 -> inhibitCharging\n- percent 78 after inhibit (between 75 and 80) -> keeps inhibited (no allow)\n- percent 75 after inhibit -> allowCharging\n- sailing on offset 10: allow only at <= 70\n- temperatureC 36 threshold 35, percent 50 -> inhibitCharging (heat), then 33.5 -> release (33 < 35-2 boundary: release strictly at <= 33)\n- discharging mode percent 81 limit 80 -> disableAdapter; percent 80 -> enableAdapter + mode back to limit; percent 19 (floor breach) -> enableAdapter + allowCharging + limit mode\n- top-up: percent 99 isCharging false -> done; percent 99 isCharging true -> keep allowing\n- externalConnected false -> commands empty\nAll as XCTests; `swift build` + `swift test` green",
+      "acceptance": "Contrast table tests, at minimum (limit 80, sailing off, heat off unless stated):\n- percent 79 charging, no prior inhibit -> no inhibit command\n- percent 80 -> inhibitCharging\n- percent 78 after inhibit (between 75 and 80) -> keeps inhibited (no allow)\n- percent 75 after inhibit -> allowCharging\n- sailing on offset 10: allow only at <= 70\n- temperatureC 36 threshold 35, percent 50 -> inhibitCharging (heat), then 33.5 -> release (33 < 35-2 boundary: release strictly at <= 33)\n- discharging mode percent 81 limit 80 -> disableAdapter; percent 80 -> enableAdapter + mode back to limit; percent 19 (floor breach) -> enableAdapter + allowCharging + limit mode\n- top-up: percent 99 isCharging false -> done; percent 99 isCharging true -> keep allowing\n- externalConnected false -> commands empty\nAll as Swift Testing tests; `swift build` + `swift test` green",
       "attempts": [],
       "evidence": null
     },
@@ -83,8 +122,14 @@
       "id": "T007",
       "title": "ampere-cli spike commands: keys / status / pause / resume / adapter",
       "status": "todo",
-      "depends_on": ["T002", "T003"],
-      "files": ["Sources/ampere-cli/main.swift", "Sources/ampere-cli/SpikeCommands.swift"],
+      "depends_on": [
+        "T002",
+        "T003"
+      ],
+      "files": [
+        "Sources/ampere-cli/main.swift",
+        "Sources/ampere-cli/SpikeCommands.swift"
+      ],
       "origin": "spec §5 Phase 0",
       "context": "Extend ampere-cli (stub from T001) with subcommands per SPEC §5 Phase 0. Hand-rolled argument parsing (no dependencies — locked). `status`: read BatteryReader live (no root), print one JSON object {percent, isCharging, externalConnected, temperatureC, cycleCount, maxCapacity, designCapacity}. `keys`: for each allowlist key (CHTE, CH0B, CH0C, CHIE, CH0I — SPEC §4) print exists/type/size from SMC keyInformation (reads are unprivileged). `pause`/`resume`: write charging-inhibit per SPEC §4 fallback order (try CHTE first — probe type via key info and write 1/0 using the probed size; if CHTE missing, write CH0B AND CH0C 0x02/0x00). `adapter off|on`: CHIE 0x08/0x00, fallback CH0I 0x01/0x00. Root guard: geteuid() != 0 for any write command -> print clear error to stderr, exit 1, write nothing. After any write, read back and print the key's new value. IMPORTANT: never write any key outside the SPEC §4 allowlist; print exactly what was written for the human hardware gate.",
       "acceptance": "- `swift build` green, `swift test` green (existing suite must not regress)\n- `.build/debug/ampere-cli status` exits 0 and prints JSON whose percent is 0...100 (verifier cross-checks against `pmset -g batt` percentage ±1 — live contrast, not hardcodable)\n- `.build/debug/ampere-cli keys` exits 0 (no sudo) and prints one line per allowlist key with an exists boolean and, when present, type/size from live key-info\n- `.build/debug/ampere-cli pause` WITHOUT sudo exits 1 with error mentioning root; same for resume / adapter\n(The sudo pause/resume/adapter behavior is the Phase 0 [HW] gate, run by the human — not this ticket's acceptance.)",
@@ -95,8 +140,18 @@
       "id": "T008",
       "title": "SMC adapter (allowlist-enforced, verify-after-write) + ampered daemon loop",
       "status": "todo",
-      "depends_on": ["T002", "T003", "T004", "T006"],
-      "files": ["Sources/AmpereCore/SMCAdapter.swift", "Tests/AmpereCoreTests/SMCAdapterTests.swift", "Sources/ampered/main.swift", "Sources/ampered/Daemon.swift"],
+      "depends_on": [
+        "T002",
+        "T003",
+        "T004",
+        "T006"
+      ],
+      "files": [
+        "Sources/AmpereCore/SMCAdapter.swift",
+        "Tests/AmpereCoreTests/SMCAdapterTests.swift",
+        "Sources/ampered/main.swift",
+        "Sources/ampered/Daemon.swift"
+      ],
       "origin": "spec §3, §4",
       "context": "(1) SMCAdapter.swift: the ONLY module that turns ChargingCommands into SMC writes. API per SPEC §4: probe() caches which inhibit key (CHTE else CH0B/CH0C) and adapter key (CHIE else CH0I) this firmware has; setChargingInhibited(Bool)/setAdapterDisabled(Bool) write per SPEC §4 values, consult docs/smc-findings.md semantics (if that file exists, its confirmed values override the defaults — read it as documentation, hardcode the SPEC §4 defaults). Inject the low-level writer as a protocol (SMCWriting) so tests use a fake. After each write, read back battery state (injectable reader) and set a `lastWriteVerified: Bool` flag — a write that doesn't change IsCharging within one re-read marks unverified (firmware-change canary, surfaced later in get-state). Idempotence: repeated same-command calls write only once. (2) Daemon.swift + main.swift: event loop per SPEC §3 — 30 s DispatchSourceTimer poll, IOPSNotificationCreateRunLoopSource callback, IORegisterForSystemPower sleep/wake (on wake: immediate re-evaluate); each tick: read battery -> decide() (T006) -> apply commands via adapter; load config from SPEC §3 path at startup (create with defaults if absent). Signal handling per SPEC §3: SIGTERM/SIGINT -> setChargingInhibited(false), setAdapterDisabled(false), exit 0. No socket server yet (T009/T010). Daemon refuses to run if geteuid() != 0.",
       "acceptance": "- SMCAdapterTests with a fake SMCWriting: allowlist enforcement (attempting a non-allowlist key traps/asserts in debug — test via the public API only exposing the two setters); idempotence (two setChargingInhibited(true) calls -> exactly one write recorded); fallback (fake reports CHTE missing -> writes go to CH0B AND CH0C); verify-after-write flag flips when fake reader disagrees (contrast: agreeing reader -> verified true)\n- `swift build` + `swift test` green\n- `.build/debug/ampered` run as non-root exits non-zero with a clear message",
@@ -107,11 +162,17 @@
       "id": "T009",
       "title": "Unix socket server (handler-based) + client library + loopback tests",
       "status": "todo",
-      "depends_on": ["T005"],
-      "files": ["Sources/AmpereCore/SocketServer.swift", "Sources/AmpereCore/SocketClient.swift", "Tests/AmpereCoreTests/SocketTests.swift"],
+      "depends_on": [
+        "T005"
+      ],
+      "files": [
+        "Sources/AmpereCore/SocketServer.swift",
+        "Sources/AmpereCore/SocketClient.swift",
+        "Tests/AmpereCoreTests/SocketTests.swift"
+      ],
       "origin": "spec §3, §3.1",
       "context": "Plain POSIX unix-domain stream sockets (socket/bind/listen/accept + DispatchSource or a background thread; no third-party code). SocketServer: init(path:, mode: mode_t, handler: (RequestLine) -> ResponseLine) — accepts connections, reads newline-delimited requests, writes one response line per request; start()/stop(); stop() unlinks the socket file. SocketClient: connect(path:), request(_ line:) -> line (with timeout). Both are generic over the T005 codec (server takes a closure so it has NO dependency on daemon internals — the daemon wires it in T010). chmod the socket to the given mode after bind; ownership (root:staff per SPEC §3) happens naturally when the daemon runs as root — do not chown in code.",
-      "acceptance": "- XCTest binds a REAL unix socket at a NSTemporaryDirectory() path, echoes through the T005 codec: send get-state request -> handler returns a canned state -> client decodes it (assert a field value)\n- error path test: malformed line -> ok:false response, connection stays usable for the next request (contrast: valid request after malformed still succeeds)\n- stop() removes the socket file (assert FileManager non-existence)\n- `swift build` + `swift test` green",
+      "acceptance": "- Swift Testing test binds a REAL unix socket at a NSTemporaryDirectory() path, echoes through the T005 codec: send get-state request -> handler returns a canned state -> client decodes it (assert a field value)\n- error path test: malformed line -> ok:false response, connection stays usable for the next request (contrast: valid request after malformed still succeeds)\n- stop() removes the socket file (assert FileManager non-existence)\n- `swift build` + `swift test` green",
       "attempts": [],
       "evidence": null
     },
@@ -119,8 +180,18 @@
       "id": "T010",
       "title": "Wire socket into daemon + ampere-cli install/uninstall/state",
       "status": "todo",
-      "depends_on": ["T008", "T009"],
-      "files": ["Sources/ampered/DaemonServer.swift", "Sources/ampered/main.swift", "Sources/ampere-cli/InstallCommands.swift", "Sources/ampere-cli/main.swift", "Tests/AmpereCoreTests/PlistTests.swift", "Sources/AmpereCore/LaunchdPlist.swift"],
+      "depends_on": [
+        "T008",
+        "T009"
+      ],
+      "files": [
+        "Sources/ampered/DaemonServer.swift",
+        "Sources/ampered/main.swift",
+        "Sources/ampere-cli/InstallCommands.swift",
+        "Sources/ampere-cli/main.swift",
+        "Tests/AmpereCoreTests/PlistTests.swift",
+        "Sources/AmpereCore/LaunchdPlist.swift"
+      ],
       "origin": "spec §3, §5 Phase 1",
       "context": "(1) DaemonServer.swift: instantiate T009's SocketServer at /var/run/ampere.sock mode 0660, handler implements every SPEC §3.1 cmd against the live daemon state (get-state assembles the full payload incl. pauseReason and lastWriteVerified canary as `writeVerified`; set-limit/set-config mutate config + persist + immediate re-evaluate; action dispatches one-shot modes into ControlState; get-stats returns [] until T014). (2) LaunchdPlist.swift in AmpereCore: pure function returning the plist XML string for label com.ampere.daemon, ProgramArguments [/Library/PrivilegedHelperTools/ampered], RunAtLoad true, KeepAlive true — pure so it's unit-testable. (3) InstallCommands.swift: `install` (root-guarded): copy .build's ampered (or --binary path) to /Library/PrivilegedHelperTools/ampered (create dir 0755), write plist to /Library/LaunchDaemons/com.ampere.daemon.plist, `launchctl bootstrap system <plist>`; `uninstall`: `launchctl bootout system/com.ampere.daemon`, remove plist + binary + socket, leave config; both support `--dry-run` printing each planned action without executing (no root needed for dry-run). `state`: SocketClient get-state, pretty-print (no root). Keep T007's spike commands working.",
       "acceptance": "- PlistTests: generated plist contains label com.ampere.daemon, the binary path, RunAtLoad true AND `plutil -lint` accepts it (write to temp file in test)\n- `.build/debug/ampere-cli install --dry-run` exits 0 (no sudo) and prints, in order: binary copy destination, plist path, bootstrap command — assert all three substrings\n- `.build/debug/ampere-cli uninstall --dry-run` prints bootout command + both removal paths\n- `swift build` + `swift test` green\n([HW] install/limit/sleep/uninstall checks are the Phase 1 gate, human-run.)",
@@ -131,8 +202,16 @@
       "id": "T011",
       "title": "MenuBarExtra app shell + daemon client view model + status glyph logic",
       "status": "todo",
-      "depends_on": ["T009"],
-      "files": ["Sources/Ampere/AmpereApp.swift", "Sources/Ampere/MenuBarView.swift", "Sources/Ampere/DaemonClientModel.swift", "Sources/AmpereCore/StatusFormatting.swift", "Tests/AmpereCoreTests/StatusFormattingTests.swift"],
+      "depends_on": [
+        "T009"
+      ],
+      "files": [
+        "Sources/Ampere/AmpereApp.swift",
+        "Sources/Ampere/MenuBarView.swift",
+        "Sources/Ampere/DaemonClientModel.swift",
+        "Sources/AmpereCore/StatusFormatting.swift",
+        "Tests/AmpereCoreTests/StatusFormattingTests.swift"
+      ],
       "origin": "spec §2, §3, §5 Phase 2",
       "context": "Replace T001's Ampere stub with a real SwiftUI MenuBarExtra app (SPEC §2): @main App with MenuBarExtra(.window style), NSApp.setActivationPolicy(.accessory) at launch. DaemonClientModel: ObservableObject polling get-state via SocketClient every 5 s while the popover is closed-cheap (timer) and immediately on open; gracefully handles daemon-absent (connection refused -> state .daemonUnavailable). MenuBarView: menu bar label shows percent + glyph; popover shows current state summary and (until T012) a placeholder section. StatusFormatting.swift in AmpereCore (pure, tested): func glyph(for state) -> String over SF Symbol names — charging -> bolt variants, paused-at-limit -> pause variant, discharging(adapter off) -> distinct glyph, daemonUnavailable -> exclamation variant; func label(percent) -> \"75%\". Keep it small; controls land in T012.",
       "acceptance": "- StatusFormattingTests: four contrasting states (charging / paused limit / adapter-off discharge / daemon unavailable) map to FOUR DISTINCT symbol names; label(75) == \"75%\"\n- `swift build` + `swift test` green\n- `.build/debug/Ampere` launches without crashing when the daemon socket is absent (verifier: run with a 5 s timeout, expect it still alive when killed, exit via signal — no crash log)",
@@ -143,8 +222,13 @@
       "id": "T012",
       "title": "Controls popover: limit slider, sailing toggle, discharge/top-up actions",
       "status": "todo",
-      "depends_on": ["T011"],
-      "files": ["Sources/Ampere/ControlsView.swift", "Sources/Ampere/MenuBarView.swift"],
+      "depends_on": [
+        "T011"
+      ],
+      "files": [
+        "Sources/Ampere/ControlsView.swift",
+        "Sources/Ampere/MenuBarView.swift"
+      ],
       "origin": "spec §5 Phase 2",
       "context": "ControlsView inside the popover (wired into MenuBarView's placeholder from T011): limit Slider 50...100 step 5 with live % label -> set-limit on release (debounced, not per-tick); sailing Toggle + offset Stepper (5...20) -> set-config; buttons 'Discharge to limit' and 'Top up to 100%' -> action cmds, disabled when daemon unavailable or already in that one-shot mode (read from get-state mode field); an 'Off' toggle mapping to config.mode off|limit with a caution footnote. All mutations go through DaemonClientModel (T011) — no new socket code. Show pauseReason ('Paused: heat') and the writeVerified canary ('⚠︎ charge control may be broken by a macOS update') when false.",
       "acceptance": "- `swift build` + `swift test` green (no regressions)\n- code review contract (verifier reads diff): every control routes through DaemonClientModel methods; no direct SocketClient construction in views; slider debounces (onEditingChanged/on release, not onChange per tick)\n- `.build/debug/Ampere` still launches daemon-absent without crash",
@@ -155,8 +239,15 @@
       "id": "T013",
       "title": "make-app.sh bundle script, launch-at-login, first-run install prompt, README",
       "status": "todo",
-      "depends_on": ["T011"],
-      "files": ["scripts/make-app.sh", "Sources/Ampere/LoginItem.swift", "Sources/Ampere/InstallPromptView.swift", "README.md"],
+      "depends_on": [
+        "T011"
+      ],
+      "files": [
+        "scripts/make-app.sh",
+        "Sources/Ampere/LoginItem.swift",
+        "Sources/Ampere/InstallPromptView.swift",
+        "README.md"
+      ],
       "origin": "spec §2, §5 Phase 2, §8",
       "context": "(1) scripts/make-app.sh: swift build -c release, assemble dist/Ampere.app (Contents/MacOS/Ampere from release binary, Contents/Info.plist with CFBundleIdentifier com.ampere.app, CFBundleName Ampere, LSUIElement true, LSMinimumSystemVersion 14.0), `codesign -s - --force dist/Ampere.app`. Idempotent (rm -rf dist/Ampere.app first). (2) LoginItem.swift: SMAppService.mainApp register/unregister behind a toggle in the popover; when running as a bare binary (no bundle), hide the toggle (Bundle.main.bundleIdentifier == nil check). (3) InstallPromptView.swift: shown by MenuBarView when state == .daemonUnavailable — explains the one-time step and shows the copyable command: sudo <path>/ampere-cli install --binary <path>/ampered. (4) README.md: what Ampere is, build steps, install/uninstall, the SPEC §8 warning that macOS Settings > Battery charge limit must stay off/100%, and the firmware-canary explanation.",
       "acceptance": "- `bash scripts/make-app.sh` exits 0; dist/Ampere.app/Contents/MacOS/Ampere is executable; `plutil -lint dist/Ampere.app/Contents/Info.plist` passes; `/usr/libexec/PlistBuddy -c 'Print LSUIElement' ...` == true; `codesign -v dist/Ampere.app` exits 0\n- README contains the native-charge-limit warning (grep 'charge limit')\n- `swift build` + `swift test` green",
@@ -167,8 +258,15 @@
       "id": "T014",
       "title": "Telemetry sampler (60 s, ring-capped JSONL) + get-stats implementation",
       "status": "todo",
-      "depends_on": ["T010"],
-      "files": ["Sources/AmpereCore/Telemetry.swift", "Tests/AmpereCoreTests/TelemetryTests.swift", "Sources/ampered/Daemon.swift", "Sources/ampered/DaemonServer.swift"],
+      "depends_on": [
+        "T010"
+      ],
+      "files": [
+        "Sources/AmpereCore/Telemetry.swift",
+        "Tests/AmpereCoreTests/TelemetryTests.swift",
+        "Sources/ampered/Daemon.swift",
+        "Sources/ampered/DaemonServer.swift"
+      ],
       "origin": "spec §3, §5 Phase 3",
       "context": "Telemetry.swift (AmpereCore, pure-ish, temp-dir testable): TelemetrySample Codable {ts, percent, isCharging, temperatureC, amperageMA, voltageMV, chargingPaused}; TelemetryLog(url:) with append(sample) writing one JSON line, ring-cap at 20,000 lines per SPEC §3 (on exceed: rewrite file keeping the newest 20,000 — do the cap check cheaply, e.g. line counter maintained in memory + on-open count); read(hoursBack:) -> [TelemetrySample] filtering by ts. Daemon wiring: sample every 60 s (reuse the existing 30 s tick, sample on every other tick) to the SPEC §3 path; DaemonServer get-stats(hours) now returns real samples.",
       "acceptance": "- TelemetryTests in temp dir: append 20,005 samples -> file has exactly 20,000 lines and the OLDEST 5 are gone (assert first line's ts, contrast with pre-cap)\n- read(hoursBack: 1) returns only samples newer than 1 h (fixture with old + new ts)\n- corrupted line in file -> read skips it without crashing (fixture)\n- `swift build` + `swift test` green",
@@ -179,8 +277,16 @@
       "id": "T015",
       "title": "Stats window: health, cycles, temperature, wattage, 24 h charts",
       "status": "todo",
-      "depends_on": ["T011", "T014"],
-      "files": ["Sources/Ampere/StatsView.swift", "Sources/AmpereCore/StatsFormatting.swift", "Tests/AmpereCoreTests/StatsFormattingTests.swift", "Sources/Ampere/MenuBarView.swift"],
+      "depends_on": [
+        "T011",
+        "T014"
+      ],
+      "files": [
+        "Sources/Ampere/StatsView.swift",
+        "Sources/AmpereCore/StatsFormatting.swift",
+        "Tests/AmpereCoreTests/StatsFormattingTests.swift",
+        "Sources/Ampere/MenuBarView.swift"
+      ],
       "origin": "spec §1.6, §5 Phase 3",
       "context": "StatsView opened from a 'Stats…' button in the popover (openWindow — add a Window scene to AmpereApp if needed via MenuBarView plumbing; keep AmpereApp changes minimal and inside MenuBarView.swift/StatsView.swift if possible, else declare AmpereApp.swift in files via decomposition — prefer NSWindow-hosted SwiftUI to avoid touching AmpereApp.swift). Content: header tiles (Health % = maxCapacity/designCapacity, cycle count, current temp, current watts) + two Swift Charts over get-stats(24h): percent-over-time line, temperature-over-time line. StatsFormatting.swift (AmpereCore, tested): healthPercent(max:design:) rounded to 1 dp; watts(amperageMA:voltageMV:) = a*v/1e6 signed, formatted '+12.3 W'/'-8.9 W'; downsample([TelemetrySample], to: n) picking evenly spaced samples for chart perf.",
       "acceptance": "- StatsFormattingTests: healthPercent(4382, 5088) == 86.1; watts(1250, 12600) == '+15.8 W' and watts(-890, 12200) == '-10.9 W' (contrast signs); downsample of 2,000 fixtures to 200 returns 200 evenly spaced (first == first, last == last)\n- `swift build` + `swift test` green\n- `.build/debug/Ampere` still launches daemon-absent",
@@ -191,8 +297,12 @@
       "id": "T016",
       "title": "Heat protection UI: toggle + threshold stepper + pause-reason surfacing",
       "status": "todo",
-      "depends_on": ["T012"],
-      "files": ["Sources/Ampere/ControlsView.swift"],
+      "depends_on": [
+        "T012"
+      ],
+      "files": [
+        "Sources/Ampere/ControlsView.swift"
+      ],
       "origin": "spec §1.5, §5 Phase 3",
       "context": "Heat logic already lives in the control core (T006) and config (T004); this ticket is UI only. In ControlsView: 'Heat protection' Toggle (heatProtectionEnabled) + threshold Stepper 30...45 °C shown when enabled -> set-config; when get-state pauseReason == heat, show a prominent 'Charging paused: battery hot (36.2 °C)' row using live temperatureC. Route through DaemonClientModel as established in T012.",
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: stepper bounds 30...45, both controls emit set-config via DaemonClientModel, heat row rendered from pauseReason + temperatureC (no hardcoded temp)\n- `.build/debug/Ampere` still launches daemon-absent",
@@ -203,11 +313,16 @@
       "id": "T017",
       "title": "Calibration state machine in control core",
       "status": "todo",
-      "depends_on": ["T006"],
-      "files": ["Sources/AmpereCore/ControlCore.swift", "Tests/AmpereCoreTests/ControlCoreTests.swift"],
+      "depends_on": [
+        "T006"
+      ],
+      "files": [
+        "Sources/AmpereCore/ControlCore.swift",
+        "Tests/AmpereCoreTests/ControlCoreTests.swift"
+      ],
       "origin": "spec §1.7, §3.3, §5 Phase 4",
       "context": "Extend ControlCore (T006 built it; its CalibrationState placeholder is nil until now) with the SPEC §3.3 calibration rules: phases discharge(target 15, floor 15: adapter disabled) -> charge(target 100: adapter enabled, charging allowed — heat inhibit still wins per spec) -> hold(1 h from reaching 100, charging allowed) -> done(restore limit mode). Transitions driven by decide()'s now: Date parameter — no timers in core. Abort semantics: calibrate-abort action OR externalConnected going false in any phase -> immediate restore (enableAdapter, limit-mode rules apply next tick). CalibrationState carries {phase, phaseEnteredAt, holdStartedAt?}. Do not change any T006 rule — existing tests must stay green untouched (modifying an existing T006 test = red flag, justify or fail).",
-      "acceptance": "- XCTests: full happy path via sequential decide() calls with advancing now (percent 60 -> discharge commands disableAdapter -> at 15 flips to charge phase + enableAdapter+allowCharging -> at 100 enters hold with holdStartedAt -> now+61 min -> done, limit mode active again)\n- abort from EACH phase (discharge/charge/hold) -> enableAdapter emitted, calibration nil, limit rules resume (three contrast tests)\n- unplug during discharge -> same restoration\n- heat 36/threshold 35 during charge phase -> inhibitCharging emitted while still calibrating (phase unchanged)\n- ALL pre-existing T006 tests pass unmodified\n- `swift build` + `swift test` green",
+      "acceptance": "- Swift Testing tests: full happy path via sequential decide() calls with advancing now (percent 60 -> discharge commands disableAdapter -> at 15 flips to charge phase + enableAdapter+allowCharging -> at 100 enters hold with holdStartedAt -> now+61 min -> done, limit mode active again)\n- abort from EACH phase (discharge/charge/hold) -> enableAdapter emitted, calibration nil, limit rules resume (three contrast tests)\n- unplug during discharge -> same restoration\n- heat 36/threshold 35 during charge phase -> inhibitCharging emitted while still calibrating (phase unchanged)\n- ALL pre-existing T006 tests pass unmodified\n- `swift build` + `swift test` green",
       "attempts": [],
       "evidence": null
     },
@@ -215,8 +330,14 @@
       "id": "T018",
       "title": "Daemon calibration wiring: actions, monthly schedule, state reporting",
       "status": "todo",
-      "depends_on": ["T017", "T010"],
-      "files": ["Sources/ampered/Daemon.swift", "Sources/ampered/DaemonServer.swift"],
+      "depends_on": [
+        "T017",
+        "T010"
+      ],
+      "files": [
+        "Sources/ampered/Daemon.swift",
+        "Sources/ampered/DaemonServer.swift"
+      ],
       "origin": "spec §1.7, §3.2, §5 Phase 4",
       "context": "Wire calibration end-to-end in the daemon: action calibrate-start seeds ControlState.calibration (only when externalConnected, else ok:false error 'charger required'); calibrate-abort clears it via the T017 abort path; get-state's calibration field reports {phase, startedAt} live. Monthly schedule: when calibrationScheduleEnabled and today is calibrationDayOfMonth (check once per hour, persist lastCalibrationDate in config file to fire at most once per month) and charger attached -> auto-start. SIGTERM restore path (T008) must also clear calibration (verify it enables adapter — it already does).",
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: calibrate-start rejects when externalConnected false; lastCalibrationDate persisted; once-per-month guard present\n- loopback-style test where feasible: DaemonServer handler unit test (canned state) returns ok:false for calibrate-start when unplugged, ok:true when plugged (contrast)\n([HW] start/abort live check is the Phase 4 gate.)",
@@ -227,8 +348,13 @@
       "id": "T019",
       "title": "Calibration UI: start/abort + progress in popover",
       "status": "todo",
-      "depends_on": ["T018", "T012"],
-      "files": ["Sources/Ampere/ControlsView.swift"],
+      "depends_on": [
+        "T018",
+        "T012"
+      ],
+      "files": [
+        "Sources/Ampere/ControlsView.swift"
+      ],
       "origin": "spec §1.7, §5 Phase 4",
       "context": "In ControlsView (heat UI from T016 already present — do not disturb it): a 'Calibrate now' button (disabled when daemon unavailable, unplugged, or already calibrating — derive from get-state) issuing calibrate-start; while get-state.calibration != nil show progress row 'Calibrating — <phase> (started <relative time>)' + an Abort button issuing calibrate-abort; a small toggle for calibrationScheduleEnabled + day-of-month stepper 1...28 -> set-config. All through DaemonClientModel.",
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: button disabled-states derived from live state (three conditions), phase text from calibration.phase (not hardcoded), stepper bounds 1...28, all mutations via DaemonClientModel\n- `.build/debug/Ampere` still launches daemon-absent",

@@ -45,3 +45,31 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        battery power. Worker tickets are baseline-only; Phase 0 [HW] gate will be
        requested from the user at the first checkpoint with charger attached.
   evidence: pmset reports 'Battery Power' at intake; swift build toolchain OK
+
+[0004] run — oracle amendment (semantic, USER-APPROVED): test framework XCTest →
+       Swift Testing
+  decision: amend-oracle
+  why: CLT-only machine ships no XCTest.framework for macOS; full Xcode (~15 GB)
+       rejected by user. Behavioral checks unchanged; only test syntax changes.
+  evidence: T001 worker escalation (import XCTest -> no such module); user chose
+       "Swift Testing" via explicit question. SPEC §2, oracle.md, backlog
+       acceptances updated.
+
+[0005] run — oracle amendment (mechanical): baseline test command = `bash scripts/test.sh`
+  decision: amend-oracle
+  why: plain `swift test` cannot locate Testing.framework/macro plugin/
+       lib_TestingInterop.dylib under CLT; wrapper supplies -F, -plugin-path,
+       and two rpaths. Check meaning unchanged ("full suite passes").
+  evidence: swift test → "no such module 'Testing'"; wrapper → "Test run with
+       1 test in 1 suite passed". Flags recorded in scripts/test.sh.
+
+[0006] T001 — done (attempt 1; blocked-escalation resolved by amendment 0004)
+  decision: continue
+  why: independent re-verify green after coordinator applied amendment to
+       ScaffoldTests.swift (mechanical application of 0004, not a build patch —
+       worker's code untouched otherwise). Scope check clean: only contracted
+       files in diff. Gaming read: trivial scaffold, nothing to game.
+  attempt: 1/3
+  evidence: swift build exit 0; scripts/test.sh 1/1 passed; targets =
+       Ampere, AmpereCore, AmpereCoreTests, ampere-cli, ampered;
+       ampere-cli prints "ampere-cli 0.0.1"

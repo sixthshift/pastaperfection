@@ -32,14 +32,15 @@ Worst case at all times = the Mac charges normally like a stock Mac.
 
 - Swift, SPM package, `// swift-tools-version: 6.0`, **`swiftLanguageMode(.v5)` on every
   target** (avoid strict-concurrency churn). Min platform `macOS(.v14)`.
-- Test framework: **XCTest**. No third-party dependencies anywhere.
+- Test framework: **Swift Testing** (`import Testing`, built into the toolchain; amended
+  from XCTest 2026-07-05 — CLT ships no XCTest, user-approved). No third-party dependencies anywhere.
 - Targets:
   - `AmpereCore` (library) — SMC client, battery reader, pure control logic, socket
     protocol codec, config model. No `main`.
   - `ampered` (executable) — the root daemon.
   - `Ampere` (executable) — SwiftUI `MenuBarExtra` app.
   - `ampere-cli` (executable) — spike/debug/install CLI.
-  - `AmpereCoreTests` — XCTest target for `AmpereCore`.
+  - `AmpereCoreTests` — Swift Testing target for `AmpereCore`.
 - UI: SwiftUI `MenuBarExtra` (`.menuBarExtraStyle(.window)`), Swift Charts for stats.
   The app sets `NSApp.setActivationPolicy(.accessory)` at launch.
 - App bundle: `scripts/make-app.sh` assembles `dist/Ampere.app` (Contents/MacOS/Ampere,
@@ -149,7 +150,8 @@ Decision rules (locked):
 
 Verification is two-tier (locked):
 - **Baseline gate — every ticket, autonomous, no hardware:** `swift build` exit 0 and
-  `swift test` all green, from repo root. New behavior ships with new XCTests.
+  `bash scripts/test.sh` (canonical `swift test` wrapper — required on this CLT-only
+  machine) all green, from repo root. New behavior ships with new Swift Testing tests.
 - **Hardware gates — phase oracles, human present with charger + sudo.** Run at chunk
   checkpoints, never inside worker sessions.
 
