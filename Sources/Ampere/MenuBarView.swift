@@ -58,13 +58,16 @@ struct MenuBarLabel: View {
 }
 
 /// The popover content (`.menuBarExtraStyle(.window)`): a state summary
-/// (percent, charging/paused/discharging line, limit) plus `ControlsView`
+/// (percent, charging/paused/discharging line, limit) when the daemon is
+/// reachable, `InstallPromptView` when it isn't, plus `ControlsView`
 /// (limit slider / sailing toggle / action buttons / off toggle — SPEC §5
-/// Phase 2, ticket T012). `ControlsView` always renders (even while the
-/// daemon is unreachable, with its controls disabled) so the popover layout
-/// doesn't jump if the daemon appears/disappears mid-session.
+/// Phase 2). `ControlsView` always renders (even while the daemon is
+/// unreachable, with its controls disabled) so the popover layout doesn't
+/// jump if the daemon appears/disappears mid-session. A "Launch at login"
+/// toggle appears when the login item API is available (bundled app only).
 struct MenuBarView: View {
     @ObservedObject var model: DaemonClientModel
+    @State private var launchAtLoginEnabled = LoginItem.status == .enabled
 
     /// The last known `get-state` payload, or `nil` while the daemon is
     /// unreachable — handed to `ControlsView` so its controls can render
@@ -80,11 +83,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             switch model.viewState {
             case .daemonUnavailable:
-                Label("Daemon unavailable", systemImage: StatusFormatting.glyph(for: .daemonUnavailable))
-                    .font(.headline)
-                Text("Ampere's daemon isn't reachable at /var/run/ampere.sock. Install it, then reopen this menu.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                InstallPromptView()
             case .state(let payload):
                 HStack(spacing: 6) {
                     Image(systemName: StatusFormatting.glyph(for: glyphState(for: payload)))
@@ -102,6 +101,14 @@ struct MenuBarView: View {
             Divider()
 
             ControlsView(model: model, payload: currentPayload)
+
+            if LoginItem.isAvailable {
+                Divider()
+                Toggle("Launch at login", isOn: $launchAtLoginEnabled)
+                    .onChange(of: launchAtLoginEnabled) { _, newValue in
+                        LoginItem.setEnabled(newValue)
+                    }
+            }
         }
         .padding()
         .frame(minWidth: 240)
@@ -109,6 +116,9 @@ struct MenuBarView: View {
             // Immediate refresh on popover open, in addition to the 5 s
             // timer cadence already running in `model`.
             model.refresh()
+            // Reflect the true SMAppService status in case it changed
+            // outside this view (e.g. via System Settings > Login Items).
+            launchAtLoginEnabled = LoginItem.status == .enabled
         }
     }
 }
