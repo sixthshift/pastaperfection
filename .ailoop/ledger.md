@@ -302,3 +302,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   evidence: 114 tests/12 suites; dist/Ampere.app builds + codesigns; app
        alive daemon-absent; pause --dry-run prints CHTE [01 00 00 00];
        cli status matches live battery (100%, unplugged)
+
+[0036] run — oracle tooling: scripts/hw-gate.sh added (coordinator-authored)
+  decision: continue (mechanical — automates the existing [HW] checks verbatim,
+       changes nothing about what counts as done)
+  why: the remaining oracle items are human-present; a single self-reporting
+       harness beats hand-copied command blocks and is re-runnable after
+       future macOS updates (firmware-canary drills).
+  evidence: bash -n clean; release build + signed bundle rebuilt at drain
