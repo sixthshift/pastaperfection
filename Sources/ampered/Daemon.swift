@@ -19,6 +19,35 @@ import IOKit
 import IOKit.pwr_mgt
 import IOKit.ps
 
+/// Sidecar persistence for the monthly calibration schedule's last-fired
+/// date (SPEC §3.2 `calibrationScheduleEnabled`/`calibrationDayOfMonth`, §5
+/// Phase 4: fire "at most once per month"). `Config.swift` is not in this
+/// ticket's files contract, so this one field lives in its own tiny JSON
+/// file rather than in the config model; the URL is injectable (matching
+/// `Daemon`'s `configURL`/`telemetryURL` pattern) so it's inspectable by
+/// tests-by-inspection without touching the real filesystem path.
+struct CalibrationScheduleState: Codable, Equatable {
+    /// ISO 8601 timestamp of the last time the monthly schedule auto-started
+    /// calibration; `nil` if it never has.
+    var lastCalibrationDate: String?
+
+    static func load(from url: URL) -> CalibrationScheduleState {
+        guard let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode(CalibrationScheduleState.self, from: data)
+        else {
+            return CalibrationScheduleState(lastCalibrationDate: nil)
+        }
+        return decoded
+    }
+
+    func save(to url: URL) {
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+}
+
 /// Thin shell around the pure control core: 30 s poll timer + power-source
 /// change notifications + sleep/wake notifications, each triggering
 /// read -> `decide(...)` -> `adapter.apply(...)`. SIGTERM/SIGINT restore
@@ -32,9 +61,14 @@ public final class Daemon {
     /// Default location of the telemetry log (SPEC §3).
     public static let defaultTelemetryURL = URL(fileURLWithPath: "/Library/Application Support/Ampere/telemetry.jsonl")
 
+    /// Default location of the monthly-calibration-schedule sidecar (see
+    /// `CalibrationScheduleState` above for why this isn't in `config.json`).
+    public static let defaultCalibrationScheduleURL = URL(fileURLWithPath: "/Library/Application Support/Ampere/calibration-state.json")
+
     private let reader: Reader
     private let adapter: SMCAdapter
     private let configURL: URL
+    private let calibrationScheduleURL: URL
     private let telemetryLog: TelemetryLog
 
     private var config: Config
@@ -45,6 +79,14 @@ public final class Daemon {
     /// Counts 30 s poll timer ticks so telemetry samples at every other tick
     /// (SPEC §3: 60 s cadence) rather than every 30 s poll.
     private var timerTickCount = 0
+    /// Persisted "last time the monthly schedule auto-started calibration"
+    /// (SPEC §5 Phase 4). Loaded once at init, rewritten only when the
+    /// schedule actually fires.
+    private var calibrationSchedule: CalibrationScheduleState
+    /// Wall-clock time of the last monthly-schedule check; `nil` means
+    /// "never checked yet, check now". Used to throttle the check to at
+    /// most once per hour despite piggybacking on the 30 s poll timer.
+    private var lastCalibrationCheckAt: Date?
 
     private var timerSource: DispatchSourceTimer?
     private var sigTermSource: DispatchSourceSignal?
@@ -65,14 +107,17 @@ public final class Daemon {
     public init(
         configURL: URL = Daemon.defaultConfigURL,
         telemetryURL: URL = Daemon.defaultTelemetryURL,
+        calibrationScheduleURL: URL = Daemon.defaultCalibrationScheduleURL,
         reader: @escaping Reader = { BatteryReader.readLive() },
         adapter: SMCAdapter = Daemon.liveAdapter()
     ) {
         self.configURL = configURL
+        self.calibrationScheduleURL = calibrationScheduleURL
         self.reader = reader
         self.adapter = adapter
         self.config = Daemon.loadOrCreateConfig(at: configURL)
         self.telemetryLog = TelemetryLog(url: telemetryURL)
+        self.calibrationSchedule = CalibrationScheduleState.load(from: calibrationScheduleURL)
     }
 
     /// Builds the live SMC-backed adapter, opening the hardware connection
@@ -161,13 +206,51 @@ public final class Daemon {
     }
 
     /// Every 30 s tick re-evaluates; every *other* tick (60 s cadence, SPEC
-    /// §3: "one sample/60 s") also appends a telemetry sample.
+    /// §3: "one sample/60 s") also appends a telemetry sample; every tick
+    /// also considers the monthly calibration schedule (throttled to at most
+    /// once per hour internally — see `checkCalibrationSchedule`).
     private func handleTimerTick() {
         evaluate()
         timerTickCount += 1
         if timerTickCount % 2 == 0 {
             sampleTelemetry()
         }
+        checkCalibrationSchedule()
+    }
+
+    // MARK: Monthly calibration schedule (SPEC §3.2, §5 Phase 4)
+
+    /// Auto-starts calibration when `config.calibrationScheduleEnabled`,
+    /// today's day-of-month matches `config.calibrationDayOfMonth`, a
+    /// charger is attached, and calibration isn't already running — at most
+    /// once per calendar month (persisted via `calibrationSchedule`).
+    /// Piggybacks on the 30 s poll timer but only actually runs its checks
+    /// once per hour (day-of-month granularity never needs finer
+    /// resolution) via `lastCalibrationCheckAt`.
+    private func checkCalibrationSchedule(now: Date = Date()) {
+        if let last = lastCalibrationCheckAt, now.timeIntervalSince(last) < 3600 {
+            return
+        }
+        lastCalibrationCheckAt = now
+
+        guard config.calibrationScheduleEnabled else { return }
+
+        let calendar = Calendar(identifier: .gregorian)
+        guard calendar.component(.day, from: now) == config.calibrationDayOfMonth else { return }
+        guard lastReading.externalConnected else { return }
+        guard state.calibration == nil else { return }
+
+        if let lastDateString = calibrationSchedule.lastCalibrationDate,
+           let lastDate = ISO8601DateFormatter().date(from: lastDateString),
+           calendar.isDate(lastDate, equalTo: now, toGranularity: .month) {
+            // Already fired this month.
+            return
+        }
+
+        state.calibration = CalibrationState(phase: .discharge, phaseEnteredAt: now)
+        calibrationSchedule.lastCalibrationDate = ISO8601DateFormatter().string(from: now)
+        calibrationSchedule.save(to: calibrationScheduleURL)
+        evaluate()
     }
 
     /// Appends the current battery reading + charging-paused state to the
@@ -281,8 +364,14 @@ public final class Daemon {
 
     /// SPEC §1 (locked): "every failure path ends with charging enabled."
     /// Restore charging + adapter to the stock-Mac safe state, then exit 0.
+    /// Explicitly clears any in-progress calibration first (SPEC §5 Phase 4:
+    /// abort semantics) so this path's intent is unambiguous even though the
+    /// process exits immediately after — the two direct adapter calls below
+    /// already force the hardware to the safe state unconditionally, calibration
+    /// running or not.
     private func restoreAndExit() -> Never {
         daemonServer?.stop()
+        state = state.abortingCalibration()
         adapter.setChargingInhibited(false)
         adapter.setAdapterDisabled(false)
         exit(0)
