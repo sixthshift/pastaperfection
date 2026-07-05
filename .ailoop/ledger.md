@@ -248,3 +248,8 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        features kept (ControlsView + login toggle + InstallPromptView), no
        semantic judgment required; merged-tree gate green incl. bundle build
   evidence: 100/100; plutil+codesign OK; app alive daemon-absent
+
+[0028] T016 — done (attempt 1)
+  decision: continue
+  why: re-verify green; single-file scope; follows established binding pattern
+  evidence: 100/100 worktree + merged

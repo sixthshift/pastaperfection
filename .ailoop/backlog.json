@@ -298,7 +298,7 @@
     {
       "id": "T016",
       "title": "Heat protection UI: toggle + threshold stepper + pause-reason surfacing",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T012"
       ],
@@ -309,7 +309,7 @@
       "context": "Heat logic already lives in the control core (T006) and config (T004); this ticket is UI only. In ControlsView: 'Heat protection' Toggle (heatProtectionEnabled) + threshold Stepper 30...45 °C shown when enabled -> set-config; when get-state pauseReason == heat, show a prominent 'Charging paused: battery hot (36.2 °C)' row using live temperatureC. Route through DaemonClientModel as established in T012.",
       "acceptance": "- `swift build` + `swift test` green\n- verifier diff review: stepper bounds 30...45, both controls emit set-config via DaemonClientModel, heat row rendered from pauseReason + temperatureC (no hardcoded temp)\n- `.build/debug/Ampere` still launches daemon-absent",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact [ControlsView.swift]; 100/100; bindings route through model.setConfig (grep-verified), stepper 30...45, zero SocketClient in view; existing heat row untouched. Merged; gate green."
     },
     {
       "id": "T017",
