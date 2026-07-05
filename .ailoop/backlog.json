@@ -259,7 +259,7 @@
     {
       "id": "T014",
       "title": "Telemetry sampler (60 s, ring-capped JSONL) + get-stats implementation",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T010"
       ],
@@ -273,7 +273,7 @@
       "context": "Telemetry.swift (AmpereCore, pure-ish, temp-dir testable): TelemetrySample Codable {ts, percent, isCharging, temperatureC, amperageMA, voltageMV, chargingPaused}; TelemetryLog(url:) with append(sample) writing one JSON line, ring-cap at 20,000 lines per SPEC §3 (on exceed: rewrite file keeping the newest 20,000 — do the cap check cheaply, e.g. line counter maintained in memory + on-open count); read(hoursBack:) -> [TelemetrySample] filtering by ts. Daemon wiring: sample every 60 s (reuse the existing 30 s tick, sample on every other tick) to the SPEC §3 path; DaemonServer get-stats(hours) now returns real samples.",
       "acceptance": "- TelemetryTests in temp dir: append 20,005 samples -> file has exactly 20,000 lines and the OLDEST 5 are gone (assert first line's ts, contrast with pre-cap)\n- read(hoursBack: 1) returns only samples newer than 1 h (fixture with old + new ts)\n- corrupted line in file -> read skips it without crashing (fixture)\n- `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (4 files); 104/104 worktree + merged; ring-cap drops OLDEST (test asserts first surviving ts == sample #6), corrupt-line skip, hoursBack filter; 60s cadence via every-other-tick; get-stats serves real samples. Merged; gate green."
     },
     {
       "id": "T015",

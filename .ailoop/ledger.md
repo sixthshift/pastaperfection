@@ -253,3 +253,9 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   decision: continue
   why: re-verify green; single-file scope; follows established binding pattern
   evidence: 100/100 worktree + merged
+
+[0029] T014 — done (attempt 1)
+  decision: continue
+  why: re-verify green; oldest-dropped assertion present (red-team finding 6
+       guard held); injectable cap for testability without 20k-line fixtures
+  evidence: 104/104 worktree + merged
