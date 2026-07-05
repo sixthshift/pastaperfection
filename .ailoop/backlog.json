@@ -103,7 +103,7 @@
     {
       "id": "T006",
       "title": "Pure control core: decide() for limit/sailing/heat/discharge/top-up",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T003",
         "T004"
@@ -116,7 +116,7 @@
       "context": "THE core ticket. Implement SPEC §3.3 exactly: ChargingCommand enum, ControlState struct (current one-shot mode: none|discharging|toppingUp, plus lastCommands for idempotence bookkeeping; include a calibration placeholder field `calibration: CalibrationState?` typed but always nil for now — the calibration rules are a later ticket and will extend this file), and pure func decide(BatteryState, Config, ControlState, now: Date) -> (commands: [ChargingCommand], next: ControlState). Frozen decision rules are in SPEC §3.3 — implement the decision table literally, including: hysteresis (inhibit at >= limit, allow at <= limit-5 or limit-sailingOffset when sailing, in-between keeps previous), heat always wins (>= threshold forces inhibit, releases at threshold-2), discharge-to-limit with hard floor 20 (floor breach -> enableAdapter+allowCharging+revert to limit mode), top-up until >=100 or (!isCharging && >=99), externalConnected==false emits no hardware commands, mode==off emits allowCharging+enableAdapter once then nothing.",
       "acceptance": "Contrast table tests, at minimum (limit 80, sailing off, heat off unless stated):\n- percent 79 charging, no prior inhibit -> no inhibit command\n- percent 80 -> inhibitCharging\n- percent 78 after inhibit (between 75 and 80) -> keeps inhibited (no allow)\n- percent 75 after inhibit -> allowCharging\n- sailing on offset 10: allow only at <= 70\n- temperatureC 36 threshold 35, percent 50 -> inhibitCharging (heat), then 33.5 -> release (33 < 35-2 boundary: release strictly at <= 33)\n- discharging mode percent 81 limit 80 -> disableAdapter; percent 80 -> enableAdapter + mode back to limit; percent 19 (floor breach) -> enableAdapter + allowCharging + limit mode\n- top-up: percent 99 isCharging false -> done; percent 99 isCharging true -> keep allowing\n- externalConnected false -> commands empty\nAll as Swift Testing tests; `swift build` + `swift test` green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact [ControlCore.swift, ControlCoreTests.swift]; build exit 0; 58/58 (19 new contrast tests: hysteresis 79/80/78/75, sailing 71/70, heat 36/33/34, discharge 81/80/19-floor, top-up, unplugged, off-mode, idempotence); code read faithful to SPEC §3.3 incl. heat early-return override and defensive adapter-enable in limit mode. Merged; gate green."
     },
     {
       "id": "T007",

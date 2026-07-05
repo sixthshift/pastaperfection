@@ -171,3 +171,12 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        same connection, permissions asserted against requested mode
   attempt: 1/3
   evidence: 46/46 on worktree x2 and merged tree; merged --no-ff
+
+[0018] T006 — done (attempt 1)
+  decision: continue
+  why: re-verify green; scope exact; gaming read on the safety-critical
+       decision table: all SPEC §3.3 rules implemented literally, heat
+       override early-returns above one-shots, floor 20 aborts discharge with
+       full restore. Tests enumerate the spec contrast table — not gameable.
+  attempt: 1/3
+  evidence: 58/58 on worktree and merged tree; merged --no-ff
