@@ -1,4 +1,4 @@
-# Ampere — locked build spec (v1)
+# Ampere — locked build spec (v1 + v2 dashboard addendum §9)
 
 A free, self-built replacement for AlDente (free + Pro features) targeting exactly one
 machine: **MacBook Pro 18,3 (M1 Pro), macOS 26.3 (Tahoe firmware), Apple Silicon.**
@@ -212,6 +212,10 @@ progress line in popover).
   `calibrating/discharge` and adapter disabled; `calibrate-abort` → limit mode restored,
   adapter enabled. (Full multi-hour cycle observed opportunistically, not gated.)
 
+### Phase 5 — v2 dashboard
+Defined entirely in §9 (locked addendum, 2026-07-06). Same two-tier verification
+(baseline gate every ticket; one hardware gate at the end of the phase, §9.7).
+
 ## §6 Out of scope (tripwires — building any of these = halt)
 
 - App Store, notarization, Developer-ID signing, sparkle/auto-update
@@ -238,3 +242,170 @@ progress line in popover).
   limit value to current charge rather than waiting for the battery).
 - macOS native Charge Limit (Settings → Battery) must remain **off/100%** while Ampere
   is active (two controllers fighting). Documented in README by Phase 2.
+
+---
+
+## §9 v2 dashboard (Phase 5 — locked addendum, 2026-07-06, user-approved)
+
+Goal: close the gap to AlDente's dashboard. Everything in v1 stays locked; this
+section only *adds*. All §6 tripwires remain in force (no network, no analytics,
+no SMC writes outside the §4 allowlist — this phase writes **zero** SMC keys).
+
+User-approved decisions (2026-07-06): months+ history via downsample-on-rotate;
+one scrolling dashboard window (no tabs); auto-refresh while open (~5 s live
+values, 60 s charts); include time-to-limit estimate and charge session log.
+
+### §9.1 Feature list
+
+1. **Live power detail row** — voltage (V, 2 dp), amperage (mA, signed), power
+   (W, signed, = Amperage×Voltage/1e6), refreshed live.
+2. **Charger info row** — adapter rating watts + name when a charger is attached;
+   "No charger" otherwise.
+3. **Richer charts** — range picker (24 h / 7 d / 30 d / All); three charts:
+   battery %, temperature, power (W); shaded regions where the daemon was
+   inhibiting charging (`chargingPaused`), drawn behind the line.
+4. **Long history** — hot telemetry stays as-is (60 s, 20,000-line ring ≈ 14 d);
+   samples that would be dropped on rotation are aggregated into an archive
+   (§9.2) giving ~13 months of coarse history.
+5. **Time-to-limit estimate** — one line under the tiles (§9.5).
+6. **Charge session log** — newest ≤ 20 derived events (held / charged /
+   discharged), list at the bottom of the dashboard (§9.5).
+
+### §9.2 Telemetry archive (downsample-on-rotate)
+
+- New file: `/Library/Application Support/Ampere/telemetry-archive.jsonl`,
+  JSONL, owned by the daemon, same crash-tolerant read rules as telemetry
+  (corrupt lines skipped).
+- `ArchiveSample` (Codable, in `AmpereCore/Telemetry.swift` or sibling file):
+  ```json
+  { "ts": "<bucket start, 15-min aligned>", "percentAvg": 79.5, "percentMin": 78,
+    "percentMax": 81, "temperatureCAvg": 30.9, "amperageMAAvg": -412,
+    "voltageMVAvg": 12630, "chargingFraction": 0.0, "pausedFraction": 1.0,
+    "count": 15 }
+  ```
+- Rotation hook (locked): when `TelemetryLog.append` performs its ring rewrite,
+  the lines it drops are first bucketed into 15-minute buckets (bucket key =
+  `floor(ts / 900 s)`) and appended to the archive. No separate scheduler; the
+  archive only grows when the hot ring rotates. Bucketing is a pure, unit-tested
+  function `[TelemetrySample] -> [ArchiveSample]`.
+- Archive cap: 40,000 lines (≈ 416 days at 15-min buckets), same
+  rewrite-when-exceeded ring mechanism, dropping oldest.
+- Migration: none needed — archive starts empty and fills as the hot ring rotates.
+
+### §9.3 Protocol deltas (amend §3.1; all additive + default-decoding, so a new
+app against an old daemon and vice versa must not crash)
+
+- `StatsSample` (wire) gains `chargingPaused: Bool` — encoded always, decoded
+  with default `false` (same hand-rolled `init(from:)` pattern already used for
+  `amperageMA`/`voltageMV`). Daemon copies it from the telemetry sample. This is
+  what feeds paused-region shading.
+- `get-stats`: `hours` keeps its meaning; **`"hours":0` now means "all history"**.
+  The daemon answers by merging: archive buckets older than the oldest hot
+  sample, mapped into `StatsSample` (`percent = round(percentAvg)`,
+  `isCharging = chargingFraction >= 0.5`, `chargingPaused = pausedFraction >= 0.5`,
+  averages copied), followed by hot samples. Merged result is downsampled
+  server-side to ≤ 2,000 samples (`StatsFormatting.downsample`) before encoding —
+  the response must stay one JSON line of sane size.
+- `GetStatePayload` gains `adapter: AdapterPayload?` — `nil` when
+  `externalConnected == false` or details unavailable:
+  ```json
+  "adapter": { "watts": 96, "name": "96W USB-C Power Adapter" }
+  ```
+  `name` optional (`String?`); omit rather than invent when absent.
+
+### §9.4 Adapter details reader (amend §4 — reads only, no new writes)
+
+- Source: the same `AppleSmartBattery` registry dictionary already read by
+  `BatteryReader` — sub-dictionary key `AdapterDetails` (`[String: Any]`), fields
+  `Watts` (Int) and `Name`/`Description` (String, either may be absent). Parser is
+  pure and total over an injected `[String: Any]` like the rest of
+  `BatteryReader`; absent/mistyped → `nil` adapter, never a crash.
+- Do **not** shell out to `ioreg` and do not add `IOPSCopyExternalPowerAdapterDetails`
+  unless `AdapterDetails` proves absent on this machine (record the finding in
+  `docs/smc-findings.md` if so).
+
+### §9.5 Pure derived logic (in `AmpereCore`, fully unit-tested, no IOKit)
+
+**Time-to-limit** — `func timeEstimate(samples: [StatsSample], state: GetStatePayload) -> TimeEstimate?`
+- Rate = mean `amperageMA` of the newest ≤ 10 samples no older than 15 min.
+- If |rate| < 50 mA → `nil` (UI shows nothing/"—").
+- Charging (rate > 0): target = `limit` (or 100 when mode is topping-up or
+  calibrating-charge); minutes = `(target − percent)/100 × maxCapacity / rate × 60`.
+- Discharging (rate < 0): target = resume bound (`limit − 5`, or
+  `limit − sailingOffset` when sailing; 20 during discharge-to-limit; 15 during
+  calibration-discharge); same formula with |rate|.
+- Already past target → `nil`. UI line: e.g. `≈ 1 h 40 m to 80%`.
+
+**Session log** — `func sessions(from samples: [StatsSample]) -> [ChargeSession]`
+- Classify each sample: `charging` if `isCharging`; `holding` if
+  `chargingPaused && !isCharging`; `discharging` if `amperageMA <= -50` and not
+  paused-holding; else `idle`.
+- Merge consecutive same-class runs. A gap > 5 min between samples (sleep,
+  daemon down) closes the current run. Drop runs shorter than 5 min.
+- `ChargeSession { kind, start, end, fromPercent, toPercent }`; UI renders the
+  newest ≤ 20, newest first, e.g. "Held at 80% — 3 h 12 m",
+  "Charged 62% → 80% — 48 m", "Discharged 100% → 80% — 1 h 05 m".
+
+### §9.6 Dashboard UI (rework `StatsView`; window stays the one
+`StatsWindowPresenter` window)
+
+- Single **scrolling** layout, default size 480×640, min 440×480: header tiles
+  (Health, Cycles, Temp, Power — unchanged semantics) → live detail rows
+  (voltage/amperage; charger; time-to-limit) → range picker (segmented:
+  24 h / 7 d / 30 d / All → `hours` 24 / 168 / 720 / 0) → three charts
+  (battery % with y-domain 0…100, temperature, power W) → session list.
+- Paused shading: contiguous `chargingPaused == true` runs become
+  `RectangleMark` x-spans behind the `LineMark`, low-opacity accent fill, on the
+  battery % and power charts.
+- Client downsampling: ≤ 400 points per chart after range selection.
+- Live refresh (locked mechanism): two `Timer`s owned by the view — 5 s tick
+  re-fetches `get-state` (tiles, detail rows, time-to-limit), 60 s tick
+  re-fetches `get-stats` for the selected range (charts, sessions). Each tick
+  no-ops unless the hosting window `isVisible` — no timer teardown races with
+  the retained-window presenter. Range change triggers an immediate re-fetch.
+- Manual Refresh button stays (forces both fetches).
+
+### §9.7 Phase 5 oracle
+
+- **Baseline gate (every ticket):** `swift build` + `bash scripts/test.sh` green.
+  New unit tests required for: bucketing, archive ring-cap, merge mapping +
+  server downsample, `StatsSample.chargingPaused` default decoding,
+  `AdapterPayload` parsing (present/absent/mistyped), time-to-limit (charging,
+  discharging, below-threshold, past-target), session segmentation (merge, gap
+  split, short-run drop).
+- **Hardware gate (human, charger attached, after `sudo ampere-cli install`
+  upgrade of the daemon):**
+  1. Dashboard voltage/amperage within 1 unit of `ioreg -rn AppleSmartBattery`
+     `Voltage`/`Amperage` read at the same time.
+  2. Charger row shows the physical adapter's rating watts; unplug → row shows
+     "No charger" ≤ 10 s; replug → row returns ≤ 10 s.
+  3. Battery-below-limit + plugged: time-to-limit shows a finite, plausible
+     estimate; at/above limit: the line disappears.
+  4. Range picker switches all four ranges without error; paused shading visible
+     over a period the daemon held at the limit; power chart shows sign flips
+     across a plug/unplug.
+  5. Session list shows today's hold/charge/discharge events consistent with the
+     day's telemetry.
+  6. Archive rotation is **test-gated only** (live rotation takes ~14 days):
+     unit test drives a small-cap `TelemetryLog` through rotation and asserts
+     archive contents; live archive observed opportunistically, not gated.
+- Live values updating without pressing Refresh (watch the Power tile change
+  within ~10 s of plugging/unplugging) is part of gate step 2.
+
+### §9.8 Suggested ticket decomposition (non-binding; intake may re-cut)
+
+1. T-V2-A: wire `chargingPaused` into `StatsSample` + `AdapterDetails` parser +
+   `adapter` in `get-state` (protocol + reader + daemon, tests).
+2. T-V2-B: archive — `ArchiveSample`, bucketing, rotation hook, archive ring,
+   `get-stats hours:0` merge + server downsample (tests).
+3. T-V2-C: pure logic — time-to-limit + session segmentation (tests).
+4. T-V2-D: dashboard UI — layout, live refresh, range picker, three charts +
+   shading, charger/detail rows, session list.
+
+### §9.9 v2 out of scope (additional tripwires)
+
+- CSV/JSON export, printing, iCloud/anything sync
+- Per-app energy attribution, process lists
+- Editing/deleting history from the UI
+- Charts beyond the three listed; annotations/zoom/pan gestures
+- Menu-bar-icon sparkline or extra menu bar items

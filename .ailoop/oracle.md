@@ -96,6 +96,56 @@ merged tree.
 - [ ] **[HW]** `action calibrate-start` → state `calibrating/discharge`, adapter
       disabled; `calibrate-abort` → limit mode, adapter enabled
 
+### Phase 5 — v2 dashboard (SPEC §9, added 2026-07-06)
+
+Locked additions (§9.2–§9.6 are binding on workers): telemetry archive via
+downsample-on-rotate (15-min `ArchiveSample` buckets, 40,000-line ring,
+`telemetry-archive.jsonl`); additive protocol deltas only (`StatsSample.chargingPaused`
+default-`false` decode, `GetStatePayload.adapter: AdapterPayload?`,
+`get-stats hours:0` = all history merged + server-downsampled ≤2,000);
+`AdapterDetails` parsed from the same AppleSmartBattery dict, reads only —
+**Phase 5 writes zero SMC keys**; pure derived logic (time-to-limit, sessions)
+in `AmpereCore`; one scrolling dashboard window, timers no-op when window not
+visible. Additional tripwires (SPEC §9.9): no export/sync, no per-app energy,
+no history editing, no extra charts/zoom/pan, no menu-bar sparkline.
+
+Autonomous checks (merged tree):
+- [ ] bucketing: contrast test — samples spanning two 15-min buckets → 2 buckets,
+      **numeric** avg/min/max + `pausedFraction`/`chargingFraction` asserted
+      (not just bucket count)
+- [ ] rotation: small-cap `TelemetryLog` driven past its cap → hot file ≤ cap AND
+      archive buckets cover the **dropped** samples' time range; archive's own
+      ring cap enforced (small-cap test)
+- [ ] merge: `hours:0` → archive-mapped + hot samples, chronological, ≤2,000 after
+      server downsample (input >2,000); mapping contrast: `pausedFraction` 0.6 →
+      `chargingPaused == true`, 0.4 → `false`
+- [ ] wire compat: `StatsSample` JSON **without** `chargingPaused` decodes `false`;
+      `GetStatePayload` JSON without `adapter` decodes `nil`; both round-trip when
+      present; paused/unpaused telemetry samples map to **differing** wire samples
+- [ ] `AdapterDetails` parser total: present → watts/name; absent dict → nil;
+      mistyped `Watts` → nil; missing `Name` → watts-only
+- [ ] time-to-limit: two different rates → two different (exact, formula-derived)
+      minute values; |rate| < 50 mA → nil; already past target → nil; sailing →
+      target `limit − sailingOffset`
+- [ ] sessions: gap > 5 min splits; runs < 5 min dropped; classification contrast
+      (charging vs paused-hold vs discharging via `amperageMA <= -50`); from/to
+      percents correct on merged runs
+- [ ] dashboard pure helpers tested: range→hours (24/168/720/0), paused-run →
+      x-span extraction (contrast fixture), session-row + time-estimate formatting
+- [ ] `scripts/make-app.sh` still produces a lint-clean, ad-hoc-signed bundle
+
+**[HW]** gate (chunk checkpoint, human + charger, after daemon reinstall):
+- [ ] dashboard voltage/amperage within 1 unit of `ioreg -rn AppleSmartBattery`
+- [ ] charger row = physical adapter watts; unplug → "No charger" ≤ 10 s; replug
+      → returns ≤ 10 s (this also proves live refresh without pressing Refresh)
+- [ ] below-limit + plugged → finite plausible time-to-limit; at/above limit → hidden
+- [ ] all four ranges render; paused shading visible over a held period; power
+      chart sign flips across plug/unplug
+- [ ] session list consistent with the day's telemetry
+- [ ] archive rotation is **test-gated only** (live rotation ≈ 14 days out)
+
 ## Caps
 
-In `backlog.json`: maxAttempts 3 · thrash 2 · chunk 6 tickets/invocation.
+In `backlog.json`: maxAttempts 3 · thrash 2 · chunk **2** tickets/invocation
+(amended from 6 at user request, 2026-07-06 — session-budget conservation;
+mechanical, see ledger).

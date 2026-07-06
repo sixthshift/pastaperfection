@@ -447,3 +447,30 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        baseline re-run green, bundle rebuilt)
   evidence: 122/122; NSApp.terminate button + ⌘Q shortcut; comment documents
        that quitting the app leaves the daemon enforcing
+
+[0049] Phase 5 intake — SPEC §9 v2 dashboard (user-approved addendum 2026-07-06)
+  decision: extend backlog T027–T030; oracle.md gains Phase 5 section
+  why: v1 shipped 26/26; user requested v2 dashboard per SPEC §9 (locked:
+       archive downsample-on-rotate, additive protocol deltas, AdapterDetails
+       read, pure derived logic, single scrolling dashboard, §9.9 tripwires).
+       Dependency spine: T027 → {T028, T029} → T030. Phase writes ZERO SMC keys.
+  caps: chunk amended 6 → 2 at user request (session-budget conservation).
+       Mechanical amendment: changes run pacing, not what counts as done.
+       maxAttempts 3 / thrash 2 unchanged.
+
+[0050] Phase 5 red-team (coordinator pass, pre-dispatch)
+  decision: acceptances sharpened before any build spend
+  findings baked into tickets/oracle:
+  - T027: hardcoded chargingPaused would pass a single-fixture test → require
+    contrast pair (paused vs unpaused → differing wire samples). Daemon-bypass
+    risk (mapping added to AmpereCore but Daemon keeps a hand-rolled copy) →
+    ticket says duplicate mapping = fail; gaming read checks the call site.
+  - T028: bucket-count-only tests are gameable → NUMERIC avg/fraction
+    assertions required; rotation test must prove archive covers the DROPPED
+    samples' time range, not merely "archive non-empty".
+  - T029: "returns non-nil" is gameable → two rates must yield two EXACT
+    formula-derived minute values; rate-window exclusion proven by fixture.
+  - T030: UI existence checks are unverifiable autonomously → all judgeable
+    logic forced into pure StatsFormatting/StatsDerived helpers with contrast
+    tests; visual checks live ONLY in the phase [HW] gate. make-app.sh output
+    lint+codesign checked mechanically.
