@@ -403,3 +403,18 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        settle-window boundary tested both sides (5s/15s).
   attempt: 1/3
   evidence: 121/121 x2; grep-verified suppression + encodeNil + gate section
+
+[0045] run — PHASES 1–4 CLOSED: full hardware gate green (user-run, 2026-07-06)
+  decision: close-phase (1, 2, 3, 4) → final report
+  why: every scripted [HW] check in oracle.md passed on the live machine:
+       install/launchd/socket (root:staff, staff client OK); limit 80
+       enforced <60 s ("not charging" on AC); set-limit round-trip;
+       discharge-to-limit ran WITHOUT self-cancel (amended SPEC §3.3 rule
+       verified live: adapter off → "Battery Power" → completion → AC
+       restored); heat pause with pauseReason==heat; cycle count matches
+       ioreg (238); calibration start reported
+       {"phase":"discharge",...} and abort restored limit mode.
+       "calibration":null explicit encoding confirmed in state output.
+  evidence: user gate transcript "ALL SCRIPTED [HW] CHECKS PASSED";
+       outstanding: passive 10-min sleep check (oracle Phase 1, user-run at
+       leisure — daemon left installed at limit 80)
