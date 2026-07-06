@@ -10,6 +10,11 @@
 //   Leaves config untouched (SPEC: daemon owns config; uninstall doesn't
 //   touch user settings).
 // - state: `get-state` over the socket, no root, pretty-printed.
+// - req: send one raw JSON line to the socket, print the one raw response
+//   line verbatim. A well-behaved replacement for `nc -U` in scripts (T024):
+//   uses the same persistent-connection `SocketClient` as `state`, so it
+//   waits for and reads the actual response instead of racing/disconnecting
+//   like `nc -w` does. No root needed.
 //
 // `--dry-run` on install/uninstall prints every planned action (one per
 // line) without executing anything and without requiring root.
@@ -38,6 +43,8 @@ public enum InstallCommands {
             return runUninstall(dryRun: dryRun)
         case "state":
             return runState()
+        case "req":
+            return runReq(args)
         default:
             writeStderr("ampere-cli: unknown subcommand '\(command)'\n")
             return 64
@@ -162,6 +169,42 @@ public enum InstallCommands {
             return 0
         } catch {
             writeStderr("ampere-cli: get-state request failed: \(error)\n")
+            return 1
+        }
+    }
+
+    // MARK: - req
+
+    /// `req <json-line>`: connect, send the line verbatim, print exactly the
+    /// one response line to stdout, close, exit 0. No root, no protocol
+    /// encoding/decoding — callers own the JSON on both ends. This is the
+    /// well-behaved client the hardware gate (`scripts/hw-gate.sh`) uses in
+    /// place of `nc -U`, which never exits against our persistent-connection
+    /// server (T024).
+    static func runReq(_ args: [String]) -> Int32 {
+        guard let line = args.first else {
+            writeStderr("ampere-cli: usage: ampere-cli req <json-line>\n")
+            return 64
+        }
+
+        let client = SocketClient()
+        do {
+            try client.connect(path: socketPath)
+        } catch {
+            // Same rationale as `state`: print the SocketClient error
+            // verbatim so ENOENT ("daemon not running") and EACCES
+            // (permission/group mismatch) stay distinguishable.
+            writeStderr("ampere-cli: \(error)\n")
+            return 1
+        }
+        defer { client.close() }
+
+        do {
+            let responseLine = try client.request(line, timeout: 5)
+            print(responseLine)
+            return 0
+        } catch {
+            writeStderr("ampere-cli: req failed: \(error)\n")
             return 1
         }
     }

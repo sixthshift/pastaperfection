@@ -14,7 +14,7 @@ say()  { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '\033[31mFAIL\033[0m %s\n' "$*"; FAILS=$((FAILS+1)); }
 
-req()  { printf '%s\n' "$1" | nc -U "$SOCK" 2>/dev/null; }
+req()  { "$CLI" req "$1" 2>/dev/null; }
 
 [ -x "$CLI" ] || { echo "release build missing — run: swift build -c release"; exit 1; }
 
