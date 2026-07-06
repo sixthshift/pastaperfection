@@ -359,3 +359,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   evidence: telemetry.jsonl last ts 2026-07-06T03:00:50Z vs date 13:22 AEST;
        state requests hang; runs=1 pid stable (no crash); user's 11:58
        config.json mtime proves requests served before the trigger
+
+[0041] T024 — done (attempt 1, tooling repair)
+  decision: continue
+  why: re-verify green; gate no longer depends on nc semantics; req exits
+       promptly on ENOENT. Minor doc gap noted: usage text (SpikeCommands.swift)
+       was outside contract and already omits install/state — fold into any
+       future tidy, not worth a ticket.
+  evidence: 114/114; grep nc count 0

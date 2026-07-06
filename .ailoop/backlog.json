@@ -442,7 +442,7 @@
     {
       "id": "T024",
       "title": "ampere-cli req command + hw-gate.sh drops nc",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T010"
       ],
@@ -455,7 +455,7 @@
       "context": "Add ampere-cli subcommand: req <json-line> — connect via SocketClient, send the line, print exactly one response line, close cleanly, exit 0 (nonzero on connect/timeout error; reuse the T022 error messages). Then rewrite scripts/hw-gate.sh req() to use  req instead of nc (remove the nc dependency entirely). Behaviour of the rest of the gate unchanged.",
       "acceptance": "- .build/debug/ampere-cli req '{\"cmd\":\"get-state\"}' with no daemon -> prints the ENOENT daemon-not-running error, exit 1, and EXITS (no hang)\n- bash -n scripts/hw-gate.sh clean; grep shows no nc usage remains\n- swift build + bash scripts/test.sh green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (3 files); 114/114; hw-gate has zero nc usage, bash -n clean; req ENOENT case exits ~0.5s with daemon-not-running error (worker tested via temp path override, reverted before commit); live wedged socket untouched."
     }
   ]
 }
