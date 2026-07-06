@@ -418,3 +418,17 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   evidence: user gate transcript "ALL SCRIPTED [HW] CHECKS PASSED";
        outstanding: passive 10-min sleep check (oracle Phase 1, user-run at
        leisure — daemon left installed at limit 80)
+
+[0046] post-gate — live dashboard red: get-stats connection closed; T026 spawned
+  decision: decompose (repair)
+  why: telemetry healthy on disk (fresh 60 s samples) but get-stats (~60KB
+       response) is dropped mid-write: accepted fds inherit the listen fd's
+       O_NONBLOCK on macOS/BSD; writeAll treats EAGAIN as fatal once the
+       socket buffer fills. Small responses (get-state) fit the buffer —
+       which is why every prior gate check passed. Escaped from T023 (its
+       loopback tests used small payloads); T026 encodes a >200KB response
+       as a permanent regression test. Daemon does NOT crash (pid stable);
+       failure is per-connection and fails safe.
+  evidence: req get-stats -> "connection closed by server", pid unchanged
+       before/after; writeAll source (EINTR-only handling); fcntl O_NONBLOCK
+       on listen fd at SocketServer.swift:152

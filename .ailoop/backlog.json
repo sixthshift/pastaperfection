@@ -476,6 +476,23 @@
       "acceptance": "- new ControlCore contrast tests: (a) calibration discharge phase + externalConnected false + lastCommands contains disableAdapter -> calibration SURVIVES and keeps disableAdapter; (b) same but adapter NOT asserted (genuine unplug) -> aborts as before; (c) discharge one-shot analog of both; (d) settle window: enableAdapter emitted at t, externalConnected false at t+5s -> no abort; at t+15s still false -> abort\n- ProtocolTests: calibration nil encodes literal \"calibration\":null (string assert), non-nil encodes object (contrast)\n- bash -n scripts/hw-gate.sh clean; discharge check present\n- swift build + bash scripts/test.sh green (116 baseline; only amendment-contradicting tests changed, each listed)",
       "attempts": [],
       "evidence": "re-verify 2026-07-06: scope exact (5 files); 121/121 twice; suppression logic per amended SPEC §3.3 (lastCommands assertion + adapterEnabledAt 10s settle window, stamped in emitAdapter); encodeNil for calibration; gate discharge check present, bash -n clean; 3 pre-existing tests modified, all three contradicted the amendment and each genuine-unplug variant preserved as a separate test with original expectations. Merged; release rebuilt."
+    },
+    {
+      "id": "T026",
+      "title": "Repair: accepted sockets inherit O_NONBLOCK (macOS/BSD) — large responses (get-stats) dropped mid-write",
+      "status": "todo",
+      "depends_on": [
+        "T023"
+      ],
+      "files": [
+        "Sources/AmpereCore/SocketServer.swift",
+        "Tests/AmpereCoreTests/SocketTests.swift"
+      ],
+      "origin": "repair: live dashboard red — get-stats (~60KB) gets connection closed by server; small responses fine",
+      "context": "T023 set O_NONBLOCK on the LISTEN fd. On macOS (BSD semantics) accepted connections INHERIT non-blocking mode, and Connection.writeAll handles only EINTR — the first write() returning EAGAIN once the ~8KB socket buffer fills is treated as fatal -> closeConnection. T023 itself documented the intent to keep accepted fds blocking. Fix: in acceptPending(), immediately after accept() returns clientFD, explicitly CLEAR O_NONBLOCK on clientFD (fcntl F_GETFL, then F_SETFL flags & ~O_NONBLOCK) with a comment explaining BSD inheritance. Reads stay DispatchSourceRead-driven (fire only when data is ready, so blocking reads are safe); writes then block until drained, which per T023 blocks only that connection queue (acceptable, documented). Do NOT add EAGAIN retry loops to writeAll — restoring blocking semantics is the fix.",
+      "acceptance": "- new Swift Testing regression test: handler returns a >200KB response line; client sends request and receives the ENTIRE line intact (assert length + last-char marker) — this fails before the fix, passes after\n- existing 121 tests green, unmodified (append-only on the test file)\n- grep: fcntl clearing O_NONBLOCK present in acceptPending with the BSD-inheritance comment\n- swift build + bash scripts/test.sh green",
+      "attempts": [],
+      "evidence": null
     }
   ]
 }
