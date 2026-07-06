@@ -535,7 +535,7 @@
   {
    "id": "T029",
    "title": "Pure derived logic: time-to-limit estimate + charge session log",
-   "status": "todo",
+   "status": "done",
    "depends_on": [
     "T027"
    ],
@@ -547,12 +547,12 @@
    "context": "SPEC \u00a79.5 (locked formulas). NEW file Sources/AmpereCore/StatsDerived.swift, pure functions only, no IOKit, no Foundation beyond Date math.\n1. `struct TimeEstimate { minutes: Int, targetPercent: Int }` (or equivalent) and `func timeEstimate(samples: [StatsSample], percent: Int, limit: Int, mode: String, sailingEnabled: Bool, sailingOffset: Int, maxCapacityMAh: Int, now: Date) -> TimeEstimate?` \u2014 exact signature may vary but inputs must be these values (they come from GetStatePayload + Config; do NOT take the whole payload if that couples the API awkwardly \u2014 builder's choice, but pure). Rate = mean amperageMA of the newest \u2264 10 samples with ts within 15 min of `now`. |rate| < 50 mA \u2192 nil. Charging (rate > 0): target = limit, or 100 when mode is topping-up or calibrating(charge). Discharging: target = limit \u2212 5, or limit \u2212 sailingOffset when sailing; 20 during discharge-to-limit mode; 15 during calibration discharge. minutes = (targetPercent \u2212 percent)/100 \u00d7 maxCapacityMAh / |rate| \u00d7 60, rounded. Already past target (sign says you'd move away) \u2192 nil.\n2. `enum SessionKind { charging, holding, discharging, idle }`, `struct ChargeSession { kind, start, end, fromPercent, toPercent }`, `func sessions(from samples: [StatsSample]) -> [ChargeSession]`. Per-sample classification precedence: isCharging \u2192 charging; chargingPaused && !isCharging \u2192 holding; amperageMA <= -50 (and not holding) \u2192 discharging; else idle. Merge consecutive same-kind runs; a gap > 5 min between adjacent samples closes the current run; drop runs shorter than 5 min. Uses T027's StatsSample.chargingPaused.",
    "acceptance": "Baseline (oracle.md): `swift build` exit 0 AND `bash scripts/test.sh` all green (NEVER plain `swift test` \u2014 CLT-only machine). New behavior ships with new Swift Testing tests.\n- timeEstimate CONTRAST: two fixtures differing only in amperage (e.g. +1000 mA vs +2000 mA, percent 60, limit 80, maxCapacity 5199) \u2192 two DIFFERENT minute values each asserted EXACTLY against the \u00a79.5 formula (\u224862 and \u224831 min) \u2014 a non-nil-only check is insufficient.\n- |mean rate| < 50 mA \u2192 nil; percent already at/above target while charging \u2192 nil; samples older than 15 min excluded from the rate window (fixture proves it).\n- discharging + sailingEnabled(offset 8, limit 80) \u2192 targetPercent 72; discharge-to-limit mode \u2192 target 20.\n- sessions: gap > 5 min splits an otherwise-identical run into two; a 4-min run is dropped, a 6-min run kept; classification contrast fixture with all four kinds; merged run's fromPercent/toPercent = first/last sample's percent.",
    "attempts": [],
-   "evidence": null
+   "evidence": "independent re-verify on worktree + merged tree: swift build exit 0; scripts/test.sh 163/163 (was 144; +19 StatsDerivedTests). Scope: exactly the 2 new contract files. Gaming read clean: rate window (15 min, newest \u226410, |mean|\u226550), target-selection precedence exactly per \u00a79.5 (calibrating-discharge 15 > discharging 20 > sailing limit\u2212offset > limit\u22125; topping-up/calibrating-charge \u2192 100), direction guard returns nil at/past target; classification precedence charging>holding>discharging>idle; contrast test asserts exact 62 vs 31 min from the formula."
   },
   {
    "id": "T030",
    "title": "Dashboard UI rework: scrolling layout, live refresh, range picker, 3 charts + shading, sessions",
-   "status": "todo",
+   "status": "in-progress",
    "depends_on": [
     "T027",
     "T028",

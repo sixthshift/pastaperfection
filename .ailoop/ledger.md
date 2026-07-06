@@ -508,3 +508,13 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        T029 only. Phase 5 [HW] gate runs at the checkpoint AFTER T030 merges
        (needs human + charger + daemon reinstall). No escalations, no gaming,
        no decompositions this chunk; both tickets first-attempt green.
+
+[0054] T029 — done (attempt 1)
+  decision: continue
+  why: re-verify green on worktree AND merged tree (163/163, was 144); scope
+       exact (2 new files only); gaming read clean — formula asserted exactly
+       (62 vs 31 min contrast), 15-min rate-window exclusion proven by
+       fixture, all four target-selection branches and the classification
+       precedence covered. Third consecutive first-attempt ticket.
+  attempt: 1/3
+  evidence: on ticket; merged at main
