@@ -66,6 +66,44 @@ if echo "$GS" | grep -q '"limit":65'; then pass "get-state reports limit 65"; el
   fail "limit not reflected: $GS"; fi
 req "{\"cmd\":\"set-limit\",\"value\":$LIMIT}" >/dev/null
 
+say "Phase 2: discharge to limit (self-induced-unplug suppression, SPEC §3.3 amended)"
+PCT=$(pmset -g batt | grep -oE '[0-9]+%' | tr -d '%')
+if [ "$PCT" -gt 80 ]; then
+  req '{"cmd":"set-limit","value":80}' >/dev/null
+  req '{"cmd":"action","name":"discharge-to-limit"}' >/dev/null
+  echo "battery ${PCT}%, limit 80 — waiting up to 15 s for adapter disable..."
+  OK=""
+  for _ in $(seq 1 15); do
+    sleep 1
+    if req '{"cmd":"get-state"}' | grep -q '"adapterDisabled":true' \
+      && pmset -g batt | grep -q "Battery Power"; then OK=1; break; fi
+  done
+  if [ -n "$OK" ]; then
+    pass "adapter disabled + pmset shows Battery Power (adapter off did not self-cancel via unplug suppression)"
+  else
+    fail "discharge-to-limit did not disable the adapter within 15 s (pmset: $(pmset -g batt | tail -1))"
+  fi
+
+  # Re-read current percent and set the limit to it: percent <= limit is
+  # already true, so the one-shot completes (enableAdapter) immediately on
+  # the daemon's next tick.
+  PCT_NOW=$(pmset -g batt | grep -oE '[0-9]+%' | tr -d '%')
+  req "{\"cmd\":\"set-limit\",\"value\":$PCT_NOW}" >/dev/null
+  echo "limit set to current ${PCT_NOW}% — waiting up to 15 s for adapter re-enable..."
+  OK=""
+  for _ in $(seq 1 15); do
+    sleep 1
+    if req '{"cmd":"get-state"}' | grep -q '"adapterDisabled":false' \
+      && pmset -g batt | grep -q "AC Power"; then OK=1; break; fi
+  done
+  if [ -n "$OK" ]; then pass "adapter re-enabled + pmset back on AC Power"; else
+    fail "adapter not re-enabled within 15 s (pmset: $(pmset -g batt | tail -1))"; fi
+
+  req '{"cmd":"set-limit","value":80}' >/dev/null
+else
+  fail "battery ${PCT}% <= 80 — skipping discharge-to-limit check (need >80% to discharge down to limit 80)"
+fi
+
 say "Phase 3: heat protection (threshold below current temp -> paused, reason heat)"
 TEMP=$(echo "$GS" | grep -oE '"temperatureC":[0-9.]+' | cut -d: -f2)
 req '{"cmd":"set-config","config":{"heatThresholdC":20}}' >/dev/null

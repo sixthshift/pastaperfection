@@ -73,16 +73,27 @@ public struct ControlState: Equatable, Sendable {
     /// one-shot rules govern charging.
     public var calibration: CalibrationState?
 
+    /// Stamped with `now` whenever `decide` actually emits `.enableAdapter`
+    /// (a real hardware-state transition, not a no-op re-assertion); `nil`
+    /// once `.disableAdapter` is emitted, and `nil` initially. Backs the
+    /// self-induced-unplug suppression's 10 s settle window (SPEC §3.3,
+    /// amended 2026-07-06): IOKit takes a moment to re-report `AC` after the
+    /// adapter is re-enabled, so a persisting `externalConnected == false`
+    /// isn't treated as a genuine unplug until this window has elapsed.
+    public var adapterEnabledAt: Date?
+
     public init(
         oneShotMode: OneShotMode = .none,
         heatInhibited: Bool = false,
         lastCommands: Set<ChargingCommand> = [.allowCharging, .enableAdapter],
-        calibration: CalibrationState? = nil
+        calibration: CalibrationState? = nil,
+        adapterEnabledAt: Date? = nil
     ) {
         self.oneShotMode = oneShotMode
         self.heatInhibited = heatInhibited
         self.lastCommands = lastCommands
         self.calibration = calibration
+        self.adapterEnabledAt = adapterEnabledAt
     }
 
     /// Whether charging is currently commanded inhibited, per `lastCommands`.
@@ -125,6 +136,7 @@ public func decide(
     var next = state
     var commands: [ChargingCommand] = []
     var lastCommands = state.lastCommands
+    var adapterEnabledAt = state.adapterEnabledAt
 
     // Only emit a command when it would actually change the recorded
     // hardware state (idempotence) — and record the change either way so
@@ -145,6 +157,10 @@ public func decide(
         let command: ChargingCommand = disabled ? .disableAdapter : .enableAdapter
         lastCommands.insert(command)
         commands.append(command)
+        // Stamp the settle-window anchor on a real enable transition; clear
+        // it on disable — there's nothing to "settle" while we're the ones
+        // holding the adapter off (SPEC §3.3 amended 2026-07-06).
+        adapterEnabledAt = disabled ? nil : now
     }
 
     // `mode == "off"`: the daemon touches nothing except restoring the
@@ -157,18 +173,42 @@ public func decide(
         next.oneShotMode = .none
         next.heatInhibited = false
         next.lastCommands = lastCommands
+        next.adapterEnabledAt = adapterEnabledAt
         return (commands, next)
     }
 
-    // No external power: nothing to control. A discharge one-shot has
-    // nothing left to accomplish (the Mac is already running on battery),
-    // so it cancels back to limit mode. Top-up is left as-is — nothing in
-    // SPEC §3.3 says unplugging should cancel it. Calibration aborts too,
-    // in any phase (SPEC §3.3 abort semantics): clearing `calibration` and
-    // re-enabling the adapter here is the "immediate restore"; ordinary
-    // `.none`/limit-mode bookkeeping (below, on a later call once power is
-    // back) takes it the rest of the way.
-    guard battery.externalConnected else {
+    // Self-induced-unplug suppression (SPEC §3.3, amended 2026-07-06,
+    // user-approved): disabling the adapter makes macOS report
+    // `externalConnected == false` — that's the *expected* consequence of
+    // our own switch, not a pulled cable, and macOS cannot tell the
+    // difference. So when we ourselves have the adapter asserted off
+    // (`lastCommands` contains `.disableAdapter`), or we very recently
+    // (re-)enabled it and IOKit hasn't caught up yet (10 s settle window,
+    // anchored on `adapterEnabledAt`), a false `externalConnected` must NOT
+    // trigger the unplug rules below — active modes keep driving normally
+    // (calibration keeps its phase and keeps emitting per-phase commands;
+    // the discharge one-shot keeps discharging), falling through to the
+    // ordinary logic below exactly as if power were connected. The 20%/15%
+    // floors remain the safety net throughout. Only a persisting disconnect
+    // with the adapter enabled and the settle window expired is a genuine
+    // unplug.
+    let adapterAssertedOff = lastCommands.contains(.disableAdapter)
+    let settleWindowActive: Bool = {
+        guard let enabledAt = adapterEnabledAt else { return false }
+        return now.timeIntervalSince(enabledAt) < 10
+    }()
+    let suppressUnplug = adapterAssertedOff || settleWindowActive
+
+    // Genuine unplug: no external power, and it isn't explained by our own
+    // adapter-off assertion or a still-settling re-enable. A discharge
+    // one-shot has nothing left to accomplish (the Mac is already running
+    // on battery), so it cancels back to limit mode. Top-up is left as-is —
+    // nothing in SPEC §3.3 says unplugging should cancel it. Calibration
+    // aborts too, in any phase (SPEC §3.3 abort semantics): clearing
+    // `calibration` and re-enabling the adapter here is the "immediate
+    // restore"; ordinary `.none`/limit-mode bookkeeping (below, on a later
+    // call once power is back) takes it the rest of the way.
+    if !battery.externalConnected && !suppressUnplug {
         if next.oneShotMode == .discharging {
             next.oneShotMode = .none
         }
@@ -177,6 +217,7 @@ public func decide(
             emitAdapter(disabled: false)
         }
         next.lastCommands = lastCommands
+        next.adapterEnabledAt = adapterEnabledAt
         return (commands, next)
     }
 
@@ -249,6 +290,7 @@ public func decide(
                 break // unreachable — handled above
             }
             next.lastCommands = lastCommands
+            next.adapterEnabledAt = adapterEnabledAt
             return (commands, next)
         }
     }
@@ -256,6 +298,7 @@ public func decide(
     if next.heatInhibited {
         emitCharging(inhibited: true)
         next.lastCommands = lastCommands
+        next.adapterEnabledAt = adapterEnabledAt
         return (commands, next)
     }
 
@@ -303,5 +346,6 @@ public func decide(
     }
 
     next.lastCommands = lastCommands
+    next.adapterEnabledAt = adapterEnabledAt
     return (commands, next)
 }
