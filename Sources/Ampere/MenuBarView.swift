@@ -114,6 +114,15 @@ struct MenuBarView: View {
                         LoginItem.setEnabled(newValue)
                     }
             }
+
+            Divider()
+            // LSUIElement apps have no Dock icon or app menu — this button is
+            // the only way to quit. Quitting the app does NOT stop the daemon;
+            // the charge limit stays enforced.
+            Button("Quit PastaPerfection") {
+                NSApp.terminate(nil)
+            }
+            .keyboardShortcut("q", modifiers: .command)
         }
         .padding()
         .frame(minWidth: 240)

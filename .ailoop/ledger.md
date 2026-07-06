@@ -440,3 +440,10 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        (250KB + trailing marker) so buffer-boundary regressions cannot hide.
   attempt: 1/3
   evidence: 122/122; append-only verified; fix at SocketServer.swift:222
+
+[0048] post-project — coordinator patch: Quit button in popover (spec omission:
+       LSUIElement app had no quit path at all)
+  decision: continue (loop closed; trivial UI addition applied directly,
+       baseline re-run green, bundle rebuilt)
+  evidence: 122/122; NSApp.terminate button + ⌘Q shortcut; comment documents
+       that quitting the app leaves the daemon enforcing
