@@ -422,7 +422,7 @@
     {
       "id": "T023",
       "title": "Repair: daemon main-queue deadlock — move state to a dedicated serial queue; non-blocking accept; SIGPIPE guard",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T022"
       ],
@@ -437,7 +437,7 @@
       "context": "Live failure: DaemonServer bridges every request via DispatchQueue.main.sync while Daemon.run() sits in CFRunLoopRun(); timer/signal sources target .main. A client disconnecting mid-request wedged the main queue permanently: control loop dead, socket dead, SIGTERM handler dead (safety rail broken — charging stayed inhibited with no way to restore except SIGKILL+manual CHTE write). Fix architecture: (1) introduce a private serial daemonQueue owning ALL daemon state; timer + signal sources target daemonQueue; socket handler bridges with daemonQueue.sync (plain serial-queue sync from connection queues — no runloop involvement, no main queue anywhere); IOKit callbacks (IOPS notification, IORegisterForSystemPower) still need the CFRunLoop on the main thread — their callbacks must hop to daemonQueue via async and must NOT touch state inline. main.swift keeps CFRunLoopRun() purely as the IOKit source pump. (2) SocketServer: set O_NONBLOCK on the listen fd (and accepted fds), make acceptPending exit on EAGAIN instead of blocking the server queue in accept(). (3) SIGPIPE: signal(SIGPIPE, SIG_IGN) early in daemon startup AND setsockopt SO_NOSIGPIPE on accepted + client fds in SocketServer/SocketClient so a vanished peer can never kill or wedge anything. (4) Sleep/wake IOAllowPowerChange acknowledgment must still happen promptly — keep the acknowledgment on the callback thread, hop only the re-evaluate.",
       "acceptance": "- new Swift Testing test: server with a handler that responds after 100ms; client connects, sends request, disconnects immediately WITHOUT reading; then a second client sends get-state-style request and gets a response within 2s (regression test for the wedge — this is the exact trigger)\n- new test: two concurrent clients each get responses (no serialization deadlock)\n- grep contract: no DispatchQueue.main.sync anywhere in Sources/ampered; timer/signal sources target the daemon queue; SIGPIPE ignored; O_NONBLOCK/SO_NOSIGPIPE present in SocketServer\n- swift build + bash scripts/test.sh green (114 + new)\n- .build/debug/ampered non-root refusal unchanged",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (5 files); 116/116 twice; grep contracts: zero DispatchQueue.main in Sources/ampered, O_NONBLOCK+EAGAIN in SocketServer, SIGPIPE guards in server/client/daemon; regression test encodes the live trigger (disconnect-without-reading then next client answered <2s); worker reproduced a real SIGPIPE crash pre-fix and stress-tested 20x post-fix; bonus fd-reuse race in stop() fixed with blocking close. Suite attr change to .serialized judged benign (no test bodies touched). Merged; release rebuilt."
     },
     {
       "id": "T024",

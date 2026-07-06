@@ -367,3 +367,13 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        was outside contract and already omits install/state — fold into any
        future tidy, not worth a ticket.
   evidence: 114/114; grep nc count 0
+
+[0042] T023 — done (attempt 1, critical repair)
+  decision: continue
+  why: re-verify green twice; all grep contracts pass; the exact live trigger
+       is now a permanent regression test; worker's minimal repro crashed
+       ~70-100% pre-fix and 0/40+ post-fix (SIGPIPE + fd-reuse both fixed).
+       Append-only deviation (@Suite -> @Suite(.serialized)) reviewed and
+       judged benign: harness attribute, zero test-body changes.
+  attempt: 1/3
+  evidence: 116/116 x2 on worktree and merged tree; release + bundle rebuilt
