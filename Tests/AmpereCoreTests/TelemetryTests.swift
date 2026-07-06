@@ -87,6 +87,160 @@ import Foundation
         #expect(wider.count == 2)
     }
 
+    // MARK: - bucket(_:)
+
+    @Test func bucketSamplesSpanningTwoWindowsProducesExactlyTwoBucketsWithNumericAggregates() {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        // Align base to a 900 s boundary so the math below is easy to reason
+        // about: bucket A covers [base, base+900), bucket B covers
+        // [base+900, base+1800).
+        let bucketStart = Date(timeIntervalSince1970: (base.timeIntervalSince1970 / 900).rounded(.down) * 900)
+
+        // Bucket A: 15 samples, 5 of them paused, 3 of them charging.
+        var samplesA: [TelemetrySample] = []
+        for i in 0..<15 {
+            samplesA.append(TelemetrySample(
+                ts: bucketStart.addingTimeInterval(Double(i) * 10),
+                percent: 70 + i, // 70...84
+                isCharging: i < 3,
+                temperatureC: 30.0 + Double(i),
+                amperageMA: 100 * i,
+                voltageMV: 12_000,
+                chargingPaused: i < 5
+            ))
+        }
+
+        // Bucket B: 5 samples, all in the next 900 s window.
+        var samplesB: [TelemetrySample] = []
+        for i in 0..<5 {
+            samplesB.append(TelemetrySample(
+                ts: bucketStart.addingTimeInterval(900 + Double(i) * 10),
+                percent: 90,
+                isCharging: false,
+                temperatureC: 35.0,
+                amperageMA: -500,
+                voltageMV: 12_100,
+                chargingPaused: false
+            ))
+        }
+
+        let buckets = bucket((samplesA + samplesB).shuffled())
+        #expect(buckets.count == 2)
+
+        let a = buckets[0]
+        #expect(a.ts == bucketStart)
+        #expect(a.count == 15)
+        #expect(a.percentMin == 70)
+        #expect(a.percentMax == 84)
+        // percentAvg = mean(70...84) = 77.0
+        #expect(abs(a.percentAvg - 77.0) < 0.001)
+        // temperatureCAvg = mean(30...44) = 37.0
+        #expect(abs(a.temperatureCAvg - 37.0) < 0.001)
+        // pausedFraction: 5 of 15 paused == 1/3.
+        #expect(abs(a.pausedFraction - 1.0 / 3.0) < 0.001)
+        // chargingFraction: 3 of 15 charging.
+        #expect(abs(a.chargingFraction - 0.2) < 0.001)
+
+        let b = buckets[1]
+        #expect(b.ts == bucketStart.addingTimeInterval(900))
+        #expect(b.count == 5)
+        #expect(b.percentMin == 90)
+        #expect(b.percentMax == 90)
+        #expect(abs(b.percentAvg - 90.0) < 0.001)
+        #expect(abs(b.pausedFraction - 0.0) < 0.001)
+        #expect(abs(b.chargingFraction - 0.0) < 0.001)
+    }
+
+    @Test func bucketEmptyInputYieldsEmptyOutput() {
+        #expect(bucket([]).isEmpty)
+    }
+
+    // MARK: - rotation hook (archive)
+
+    @Test func rotationArchivesDroppedSamplesCoveringTheirTimeRange() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("telemetry.jsonl")
+        let archiveURL = dir.appendingPathComponent("telemetry-archive.jsonl")
+
+        let cap = 10
+        let log = TelemetryLog(url: url, capLines: cap, archiveURL: archiveURL)
+        // Base aligned to a 900 s boundary. Samples are spaced 1000 s apart
+        // (wider than the 900 s bucket width) so each individual rotation
+        // event — which only ever drops exactly one old line at a time,
+        // since `keep = capLines - 1` and one new line is appended — lands
+        // its dropped sample in its own distinct 15-min bucket. This makes
+        // the archive's bucket structure directly attributable to specific
+        // dropped samples, rather than several rotations silently
+        // coalescing into one bucket.
+        let base = Date(timeIntervalSince1970: (1_700_000_000.0 / 900).rounded(.down) * 900)
+
+        var samples: [TelemetrySample] = []
+        for i in 0..<25 {
+            let s = sample(ts: base.addingTimeInterval(Double(i) * 1000), percent: i)
+            samples.append(s)
+            log.append(s)
+        }
+
+        // Hot file never exceeds the cap.
+        let hotRaw = try String(contentsOf: url, encoding: .utf8)
+        let hotLineCount = hotRaw.split(separator: "\n", omittingEmptySubsequences: true).count
+        #expect(hotLineCount <= cap)
+
+        // With cap=10 and 25 appends, the dropped samples are the oldest
+        // 25 - 10 = 15 (samples[0...14]), one at a time as each rewrite
+        // fires starting from the 11th append.
+        let droppedSamples = Array(samples[0..<15])
+
+        let archived = log.readArchive()
+        #expect(archived.count == droppedSamples.count)
+
+        // Each dropped sample maps to its own bucket (ts = floor(ts/900)*900,
+        // count == 1), and every one of those buckets shows up in the
+        // archive — i.e. the dropped time range is fully covered.
+        let archivedByTs = Dictionary(uniqueKeysWithValues: archived.map { ($0.ts, $0) })
+        for dropped in droppedSamples {
+            let expectedBucketTs = Date(
+                timeIntervalSince1970: (dropped.ts.timeIntervalSince1970 / 900).rounded(.down) * 900
+            )
+            let found = archivedByTs[expectedBucketTs]
+            #expect(found != nil)
+            #expect(found?.count == 1)
+        }
+    }
+
+    @Test func archiveRingCapDropsOldestWhenExceeded() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("telemetry.jsonl")
+        let archiveURL = dir.appendingPathComponent("telemetry-archive.jsonl")
+
+        // Small hot cap so rotations happen often, and a tiny archive cap so
+        // the archive ring itself has to drop entries.
+        let log = TelemetryLog(url: url, capLines: 5, archiveURL: archiveURL, archiveCapLines: 3)
+        // Samples spaced 20 minutes apart so essentially every dropped
+        // sample lands in its own distinct 15-min bucket, guaranteeing many
+        // more than 3 archive lines get produced over the run.
+        let base = Date(timeIntervalSince1970: (1_700_000_000.0 / 900).rounded(.down) * 900)
+
+        for i in 0..<30 {
+            log.append(sample(ts: base.addingTimeInterval(Double(i) * 1200), percent: i % 100))
+        }
+
+        // Hot cap 5, 30 appends → 25 rotations, each dropping exactly one
+        // sample into its own bucket (25 new archive lines produced over
+        // the run) → archive ring (cap 3) holds exactly the newest 3.
+        let archived = log.readArchive()
+        #expect(archived.count == 3)
+
+        // The kept buckets are the newest ones (ring drops oldest first):
+        // ts values should be strictly increasing.
+        let sortedTs = archived.map(\.ts).sorted()
+        for i in 1..<sortedTs.count {
+            #expect(sortedTs[i] > sortedTs[i - 1])
+        }
+    }
+
     @Test func readSkipsCorruptedLineWithoutCrashing() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

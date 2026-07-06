@@ -44,6 +44,97 @@ public struct TelemetrySample: Codable, Equatable, Sendable {
     }
 }
 
+/// One 15-minute downsampled bucket, as persisted to
+/// `telemetry-archive.jsonl` (SPEC §9.2). Produced by `bucket(_:)` from the
+/// `TelemetrySample`s a hot-ring rotation drops, so ~13 months of coarse
+/// history survives past the 20,000-line hot ring's ~14-day window.
+public struct ArchiveSample: Codable, Equatable, Sendable {
+    /// Bucket start, 15-minute aligned (`floor(ts / 900 s) * 900 s`).
+    public var ts: Date
+    public var percentAvg: Double
+    public var percentMin: Int
+    public var percentMax: Int
+    public var temperatureCAvg: Double
+    public var amperageMAAvg: Double
+    public var voltageMVAvg: Double
+    /// Fraction (0...1) of the bucket's samples with `isCharging == true`.
+    public var chargingFraction: Double
+    /// Fraction (0...1) of the bucket's samples with `chargingPaused == true`.
+    public var pausedFraction: Double
+    /// Number of raw samples folded into this bucket.
+    public var count: Int
+
+    public init(
+        ts: Date,
+        percentAvg: Double,
+        percentMin: Int,
+        percentMax: Int,
+        temperatureCAvg: Double,
+        amperageMAAvg: Double,
+        voltageMVAvg: Double,
+        chargingFraction: Double,
+        pausedFraction: Double,
+        count: Int
+    ) {
+        self.ts = ts
+        self.percentAvg = percentAvg
+        self.percentMin = percentMin
+        self.percentMax = percentMax
+        self.temperatureCAvg = temperatureCAvg
+        self.amperageMAAvg = amperageMAAvg
+        self.voltageMVAvg = voltageMVAvg
+        self.chargingFraction = chargingFraction
+        self.pausedFraction = pausedFraction
+        self.count = count
+    }
+}
+
+/// 15-minute bucket width, in seconds (SPEC §9.2: "bucket key =
+/// `floor(ts / 900 s)`").
+private let archiveBucketSeconds: TimeInterval = 900
+
+/// Pure downsample step for the telemetry archive (SPEC §9.2): groups
+/// `samples` into 15-minute buckets keyed by `floor(ts / 900 s)` and reduces
+/// each bucket to one `ArchiveSample` (arithmetic means, min/max percent,
+/// charging/paused fractions). Order of `samples` doesn't matter; the
+/// result is always sorted by `ts` ascending. Empty input yields `[]`.
+public func bucket(_ samples: [TelemetrySample]) -> [ArchiveSample] {
+    guard !samples.isEmpty else { return [] }
+
+    var buckets: [Int64: [TelemetrySample]] = [:]
+    for sample in samples {
+        let key = Int64((sample.ts.timeIntervalSince1970 / archiveBucketSeconds).rounded(.down))
+        buckets[key, default: []].append(sample)
+    }
+
+    return buckets.keys.sorted().map { key -> ArchiveSample in
+        let group = buckets[key]!
+        let count = group.count
+        let n = Double(count)
+        let bucketStart = Date(timeIntervalSince1970: Double(key) * archiveBucketSeconds)
+
+        let percentSum = group.reduce(0.0) { $0 + Double($1.percent) }
+        let temperatureSum = group.reduce(0.0) { $0 + $1.temperatureC }
+        let amperageSum = group.reduce(0.0) { $0 + Double($1.amperageMA) }
+        let voltageSum = group.reduce(0.0) { $0 + Double($1.voltageMV) }
+        let chargingCount = group.filter(\.isCharging).count
+        let pausedCount = group.filter(\.chargingPaused).count
+
+        return ArchiveSample(
+            ts: bucketStart,
+            percentAvg: percentSum / n,
+            percentMin: group.map(\.percent).min() ?? 0,
+            percentMax: group.map(\.percent).max() ?? 0,
+            temperatureCAvg: temperatureSum / n,
+            amperageMAAvg: amperageSum / n,
+            voltageMVAvg: voltageSum / n,
+            chargingFraction: Double(chargingCount) / n,
+            pausedFraction: Double(pausedCount) / n,
+            count: count
+        )
+    }
+}
+
 /// Append-only JSONL telemetry log at `url`, ring-capped at `capLines`
 /// (SPEC §3: "ring-capped at 20,000 lines (rewrite file when exceeded)").
 ///
@@ -54,14 +145,28 @@ public struct TelemetrySample: Codable, Equatable, Sendable {
 public final class TelemetryLog {
     /// SPEC §3: ring-cap at 20,000 lines.
     public static let defaultCapLines = 20_000
+    /// SPEC §9.2: archive ring-cap at 40,000 lines (≈ 416 days of 15-min
+    /// buckets).
+    public static let defaultArchiveCapLines = 40_000
 
     private let url: URL
     private let capLines: Int
     private var lineCount: Int?
 
-    public init(url: URL, capLines: Int = TelemetryLog.defaultCapLines) {
+    private let archiveURL: URL
+    private let archiveCapLines: Int
+
+    public init(
+        url: URL,
+        capLines: Int = TelemetryLog.defaultCapLines,
+        archiveURL: URL? = nil,
+        archiveCapLines: Int = TelemetryLog.defaultArchiveCapLines
+    ) {
         self.url = url
         self.capLines = capLines
+        self.archiveURL = archiveURL ?? url.deletingLastPathComponent()
+            .appendingPathComponent("telemetry-archive.jsonl")
+        self.archiveCapLines = archiveCapLines
     }
 
     private static let encoder: JSONEncoder = {
@@ -94,7 +199,15 @@ public final class TelemetryLog {
             // new sample the file holds exactly `capLines` lines.
             let existing = readRawLines()
             let keep = max(capLines - 1, 0)
+            let dropped = existing.prefix(max(existing.count - keep, 0))
             let newest = existing.suffix(keep)
+
+            // SPEC §9.2 rotation hook: lines about to be dropped from the
+            // hot ring are decoded (corrupt lines tolerated, matching
+            // `read`'s tolerance), downsampled into 15-min buckets, and
+            // folded into the archive BEFORE the hot rewrite below.
+            archiveDroppedLines(dropped)
+
             let rewritten = (newest + [lineString]).joined(separator: "\n") + "\n"
             try? rewritten.data(using: .utf8)?.write(to: url, options: .atomic)
             lineCount = newest.count + 1
@@ -120,15 +233,44 @@ public final class TelemetryLog {
     /// Reads all samples newer than `hoursBack` hours ago. Corrupt lines
     /// (invalid JSON, wrong shape) are skipped rather than causing a crash
     /// or an error — a single bad line must never take down stats.
+    ///
+    /// NOTE: `hoursBack: 0` here means "nothing newer than now" (an empty
+    /// cutoff window) — this is the pre-existing, unchanged contract for
+    /// every current call site. It is NOT the same as `get-stats`'s new
+    /// `"hours":0` meaning "all history" (SPEC §9.3); callers that want all
+    /// hot samples should use `readAll()` instead.
     public func read(hoursBack: Double) -> [TelemetrySample] {
         let cutoff = Date().addingTimeInterval(-hoursBack * 3600)
-        return readRawLines().compactMap { line -> TelemetrySample? in
+        return decodedSamples(from: readRawLines()).filter { $0.ts >= cutoff }
+    }
+
+    /// Reads every hot-file sample, unfiltered (SPEC §9.3: `get-stats`'s
+    /// `"hours":0` means "all history"). Corrupt lines are skipped, same as
+    /// `read(hoursBack:)`.
+    public func readAll() -> [TelemetrySample] {
+        decodedSamples(from: readRawLines())
+    }
+
+    private func decodedSamples(from lines: [String]) -> [TelemetrySample] {
+        lines.compactMap { line -> TelemetrySample? in
             guard !line.isEmpty,
                   let sample = try? Self.decoder.decode(TelemetrySample.self, from: Data(line.utf8)) else {
                 return nil
             }
             return sample
-        }.filter { $0.ts >= cutoff }
+        }
+    }
+
+    /// Reads all archived buckets (SPEC §9.2). Corrupt lines are skipped,
+    /// matching `read`'s tolerance for the hot file.
+    public func readArchive() -> [ArchiveSample] {
+        readRawLines(at: archiveURL).compactMap { line -> ArchiveSample? in
+            guard !line.isEmpty,
+                  let sample = try? Self.decoder.decode(ArchiveSample.self, from: Data(line.utf8)) else {
+                return nil
+            }
+            return sample
+        }
     }
 
     // MARK: - Internals
@@ -143,10 +285,43 @@ public final class TelemetryLog {
     }
 
     private func readRawLines() -> [String] {
-        guard let data = try? Data(contentsOf: url),
+        readRawLines(at: url)
+    }
+
+    private func readRawLines(at fileURL: URL) -> [String] {
+        guard let data = try? Data(contentsOf: fileURL),
               let contents = String(data: data, encoding: .utf8) else {
             return []
         }
         return contents.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    /// Decodes `droppedLines` (hot-ring lines about to be discarded on
+    /// rotation), buckets them via `bucket(_:)`, and folds the resulting
+    /// archive lines into the archive file, applying the archive's own
+    /// rewrite-when-exceeded ring cap (SPEC §9.2). Corrupt lines among
+    /// `droppedLines` are silently skipped, matching `read`'s tolerance.
+    private func archiveDroppedLines<S: Sequence>(_ droppedLines: S) where S.Element == String {
+        let droppedSamples = decodedSamples(from: Array(droppedLines))
+        guard !droppedSamples.isEmpty else { return }
+
+        let newBuckets = bucket(droppedSamples)
+        let newLines = newBuckets.compactMap { archiveSample -> String? in
+            guard let data = try? Self.encoder.encode(archiveSample),
+                  let string = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            return string
+        }
+        guard !newLines.isEmpty else { return }
+
+        let existing = readRawLines(at: archiveURL)
+        let combined = existing + newLines
+        let kept = combined.count > archiveCapLines ? Array(combined.suffix(archiveCapLines)) : combined
+
+        let dir = archiveURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let rewritten = kept.joined(separator: "\n") + "\n"
+        try? rewritten.data(using: .utf8)?.write(to: archiveURL, options: .atomic)
     }
 }

@@ -563,10 +563,17 @@ public final class Daemon {
         }
     }
 
-    /// `get-stats` (SPEC §3.1): reads persisted telemetry samples from the
-    /// last `hours` hours and projects them to the wire shape (`StatsSample`).
+    /// `get-stats` (SPEC §3.1, amended §9.3): reads persisted telemetry
+    /// samples from the last `hours` hours and projects them to the wire
+    /// shape (`StatsSample`). `hours == 0` means "all history" — answered by
+    /// merging the archive (coarse, 15-min buckets) with every hot sample
+    /// (`telemetryLog.readAll()`, NOT `read(hoursBack: 0)`, whose existing
+    /// contract for positive-hours callers means "nothing newer than now").
     func getStats(hours: Int) -> StatsPayload {
-        let samples = telemetryLog.read(hoursBack: Double(hours)).map(StatsSample.init)
+        let hoursBack = Double(hours)
+        let hot = hours == 0 ? telemetryLog.readAll() : telemetryLog.read(hoursBack: hoursBack)
+        let archive = telemetryLog.readArchive()
+        let samples = StatsFormatting.mergedStats(archive: archive, hot: hot, hoursBack: hoursBack)
         return StatsPayload(samples: samples)
     }
 
