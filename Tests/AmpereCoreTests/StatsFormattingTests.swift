@@ -178,4 +178,122 @@ import Foundation
         #expect(!timestamps.contains(staleArchive.ts))
         #expect(!timestamps.contains(staleHot.ts))
     }
+
+    // MARK: - DashboardRange
+
+    @Test func dashboardRangeHoursMapping() {
+        #expect(StatsFormatting.DashboardRange.day.hours == 24)
+        #expect(StatsFormatting.DashboardRange.week.hours == 168)
+        #expect(StatsFormatting.DashboardRange.month.hours == 720)
+        #expect(StatsFormatting.DashboardRange.all.hours == 0)
+    }
+
+    // MARK: - pausedIntervals
+
+    private func statsSample(ts: Date, paused: Bool) -> StatsSample {
+        StatsSample(
+            timestamp: ts,
+            percent: 80,
+            isCharging: false,
+            temperatureC: 30.0,
+            amperageMA: 0,
+            voltageMV: 12_000,
+            chargingPaused: paused
+        )
+    }
+
+    @Test func pausedIntervalsWithTwoSeparatedRunsReturnsExactlyTwoIntervals() {
+        let base = Date(timeIntervalSince1970: 0)
+        let samples = [
+            statsSample(ts: base, paused: false),
+            statsSample(ts: base.addingTimeInterval(60), paused: true),
+            statsSample(ts: base.addingTimeInterval(120), paused: true),
+            statsSample(ts: base.addingTimeInterval(180), paused: false),
+            statsSample(ts: base.addingTimeInterval(240), paused: false),
+            statsSample(ts: base.addingTimeInterval(300), paused: true),
+            statsSample(ts: base.addingTimeInterval(360), paused: true),
+            statsSample(ts: base.addingTimeInterval(420), paused: true),
+            statsSample(ts: base.addingTimeInterval(480), paused: false)
+        ]
+
+        let intervals = StatsFormatting.pausedIntervals(samples)
+
+        #expect(intervals.count == 2)
+        #expect(intervals[0] == StatsFormatting.PausedInterval(
+            start: base.addingTimeInterval(60), end: base.addingTimeInterval(120)
+        ))
+        #expect(intervals[1] == StatsFormatting.PausedInterval(
+            start: base.addingTimeInterval(300), end: base.addingTimeInterval(420)
+        ))
+    }
+
+    @Test func pausedIntervalsAllUnpausedReturnsEmpty() {
+        let base = Date(timeIntervalSince1970: 0)
+        let samples = (0..<5).map { statsSample(ts: base.addingTimeInterval(Double($0) * 60), paused: false) }
+        #expect(StatsFormatting.pausedIntervals(samples).isEmpty)
+    }
+
+    // MARK: - sessionRowText
+
+    @Test func sessionRowTextHoldingFormatsHeldAt() {
+        let start = Date(timeIntervalSince1970: 0)
+        let session = StatsDerived.ChargeSession(
+            kind: .holding, start: start, end: start.addingTimeInterval(3 * 3600 + 12 * 60),
+            fromPercent: 80, toPercent: 80
+        )
+        #expect(StatsFormatting.sessionRowText(session) == "Held at 80% — 3 h 12 m")
+    }
+
+    @Test func sessionRowTextChargingFormatsChargedRange() {
+        let start = Date(timeIntervalSince1970: 0)
+        let session = StatsDerived.ChargeSession(
+            kind: .charging, start: start, end: start.addingTimeInterval(48 * 60),
+            fromPercent: 62, toPercent: 80
+        )
+        #expect(StatsFormatting.sessionRowText(session) == "Charged 62% \u{2192} 80% — 48 m")
+    }
+
+    @Test func sessionRowTextDischargingFormatsDischargedRange() {
+        let start = Date(timeIntervalSince1970: 0)
+        let session = StatsDerived.ChargeSession(
+            kind: .discharging, start: start, end: start.addingTimeInterval(3600 + 5 * 60),
+            fromPercent: 100, toPercent: 80
+        )
+        #expect(StatsFormatting.sessionRowText(session) == "Discharged 100% \u{2192} 80% — 1 h 05 m")
+    }
+
+    // MARK: - timeEstimateText
+
+    @Test func timeEstimateTextFormatsApproxDuration() {
+        let estimate = StatsDerived.TimeEstimate(minutes: 100, targetPercent: 80)
+        #expect(StatsFormatting.timeEstimateText(estimate) == "\u{2248} 1 h 40 m to 80%")
+    }
+
+    // MARK: - voltage/amperage/charger text
+
+    @Test func voltageTextFormatsTwoDecimalPlaces() {
+        #expect(StatsFormatting.voltageText(voltageMV: 12_630) == "12.63 V")
+    }
+
+    @Test func amperageTextSignedPositive() {
+        #expect(StatsFormatting.amperageText(amperageMA: 1250) == "+1250 mA")
+    }
+
+    @Test func amperageTextSignedNegative() {
+        #expect(StatsFormatting.amperageText(amperageMA: -890) == "-890 mA")
+    }
+
+    @Test func chargerTextWithNamePrefixesWattsWithoutSpace() {
+        let adapter = AdapterPayload(watts: 96, name: "96W USB-C Power Adapter")
+        #expect(StatsFormatting.chargerText(adapter) == "96W USB-C Power Adapter")
+    }
+
+    @Test func chargerTextWithoutNameFallsBackToGenericAdapter() {
+        let adapter = AdapterPayload(watts: 96, name: nil)
+        #expect(StatsFormatting.chargerText(adapter) == "96 W adapter")
+    }
+
+    @Test func chargerTextNilAdapterShowsNoCharger() {
+        #expect(StatsFormatting.chargerText(nil) == "No charger")
+    }
 }

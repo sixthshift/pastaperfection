@@ -14,13 +14,19 @@ public enum StatsFormatting {
         return (ratio * 10).rounded() / 10
     }
 
-    /// Signed wattage display: `amperage (mA) * voltage (mV) / 1e6` (SPEC
-    /// §5 Phase 3: "watts = Amperage×Voltage/1e6"), formatted to 1 decimal
-    /// place with an explicit `+`/`-` sign, e.g. `"+15.8 W"` / `"-10.9 W"`.
-    /// Amperage's sign (positive = charging, negative = discharging, per
-    /// SPEC §4) carries through to the sign of the result.
+    /// Raw wattage: `amperage (mA) * voltage (mV) / 1e6` (SPEC §5 Phase 3:
+    /// "watts = Amperage×Voltage/1e6"). Signed — positive while charging,
+    /// negative while discharging (per SPEC §4's amperage sign convention).
+    /// Used both by `watts(amperageMA:voltageMV:)`'s formatted display and
+    /// directly by the dashboard's power chart (ticket T030).
+    public static func wattsValue(amperageMA: Int, voltageMV: Int) -> Double {
+        Double(amperageMA) * Double(voltageMV) / 1_000_000
+    }
+
+    /// Signed wattage display, formatted to 1 decimal place with an
+    /// explicit `+`/`-` sign, e.g. `"+15.8 W"` / `"-10.9 W"`.
     public static func watts(amperageMA: Int, voltageMV: Int) -> String {
-        let watts = Double(amperageMA) * Double(voltageMV) / 1_000_000
+        let watts = wattsValue(amperageMA: amperageMA, voltageMV: voltageMV)
         let sign = watts < 0 ? "-" : "+"
         let magnitude = abs(watts)
         return String(format: "%@%.1f W", sign, magnitude)
@@ -99,5 +105,131 @@ public enum StatsFormatting {
 
         let merged = (archiveMapped + hotMapped).sorted { $0.timestamp < $1.timestamp }
         return downsample(merged, to: 2000)
+    }
+
+    // MARK: - Dashboard (T030 / SPEC §9.6)
+
+    /// The dashboard's range picker (SPEC §9.6): 24 h / 7 d / 30 d / All,
+    /// mapping to `get-stats`'s `hours` parameter (`0` meaning "all history",
+    /// per §9.3).
+    public enum DashboardRange: String, CaseIterable, Identifiable, Sendable {
+        case day = "24 h"
+        case week = "7 d"
+        case month = "30 d"
+        case all = "All"
+
+        public var id: String { rawValue }
+
+        public var hours: Int {
+            switch self {
+            case .day: return 24
+            case .week: return 168
+            case .month: return 720
+            case .all: return 0
+            }
+        }
+    }
+
+    /// A contiguous x-span of `chargingPaused == true` samples, used to draw
+    /// paused-region shading (`RectangleMark`) behind the battery %/power
+    /// `LineMark`s (SPEC §9.6).
+    public struct PausedInterval: Equatable, Sendable {
+        public var start: Date
+        public var end: Date
+
+        public init(start: Date, end: Date) {
+            self.start = start
+            self.end = end
+        }
+    }
+
+    /// Derives contiguous `chargingPaused == true` runs from `samples`
+    /// (sorted by timestamp first, so callers needn't pre-sort) as x-span
+    /// intervals for chart shading. A run of a single sample yields a
+    /// zero-width interval (`start == end`). Empty when no sample is paused.
+    public static func pausedIntervals(_ samples: [StatsSample]) -> [PausedInterval] {
+        let sorted = samples.sorted { $0.timestamp < $1.timestamp }
+        var result: [PausedInterval] = []
+        var runStart: Date?
+        var runEnd: Date?
+        for sample in sorted {
+            if sample.chargingPaused {
+                if runStart == nil {
+                    runStart = sample.timestamp
+                }
+                runEnd = sample.timestamp
+            } else if let start = runStart, let end = runEnd {
+                result.append(PausedInterval(start: start, end: end))
+                runStart = nil
+                runEnd = nil
+            }
+        }
+        if let start = runStart, let end = runEnd {
+            result.append(PausedInterval(start: start, end: end))
+        }
+        return result
+    }
+
+    /// Formats a duration like `"3 h 12 m"` (hours present) or `"48 m"`
+    /// (under an hour) — shared by the session-row and time-estimate
+    /// formatters below. Minutes are zero-padded to 2 digits when an hours
+    /// component is present (e.g. `"1 h 05 m"`), matching SPEC §9.5's
+    /// examples.
+    static func durationText(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int((seconds / 60).rounded())
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 {
+            return String(format: "%d h %02d m", hours, minutes)
+        }
+        return "\(minutes) m"
+    }
+
+    /// Session-row display string for the dashboard's session list (SPEC
+    /// §9.1/§9.5), e.g. `"Held at 80% — 3 h 12 m"`,
+    /// `"Charged 62% → 80% — 48 m"`, `"Discharged 100% → 80% — 1 h 05 m"`.
+    public static func sessionRowText(_ session: StatsDerived.ChargeSession) -> String {
+        let duration = durationText(session.end.timeIntervalSince(session.start))
+        switch session.kind {
+        case .holding:
+            return "Held at \(session.toPercent)% — \(duration)"
+        case .charging:
+            return "Charged \(session.fromPercent)% \u{2192} \(session.toPercent)% — \(duration)"
+        case .discharging:
+            return "Discharged \(session.fromPercent)% \u{2192} \(session.toPercent)% — \(duration)"
+        case .idle:
+            return "Idle — \(duration)"
+        }
+    }
+
+    /// Time-to-limit display string (SPEC §9.5), e.g. `"≈ 1 h 40 m to 80%"`.
+    public static func timeEstimateText(_ estimate: StatsDerived.TimeEstimate) -> String {
+        let duration = durationText(TimeInterval(estimate.minutes * 60))
+        return "\u{2248} \(duration) to \(estimate.targetPercent)%"
+    }
+
+    /// Live voltage detail row (SPEC §9.1): `"%.2f V"`.
+    public static func voltageText(voltageMV: Int) -> String {
+        String(format: "%.2f V", Double(voltageMV) / 1000)
+    }
+
+    /// Live amperage detail row (SPEC §9.1): signed mA, e.g. `"+1250 mA"` /
+    /// `"-890 mA"`.
+    public static func amperageText(amperageMA: Int) -> String {
+        let sign = amperageMA < 0 ? "-" : "+"
+        return "\(sign)\(abs(amperageMA)) mA"
+    }
+
+    /// Charger info row (SPEC §9.1): the adapter's descriptive name when
+    /// present (e.g. `"96W USB-C Power Adapter"` — the hardware-reported
+    /// name already embeds the wattage), `"96 W adapter"` synthesized from
+    /// `watts` when the adapter has no name, `"No charger"` when there's no
+    /// adapter at all.
+    public static func chargerText(_ adapter: AdapterPayload?) -> String {
+        guard let adapter else { return "No charger" }
+        if let name = adapter.name {
+            return name
+        }
+        return "\(adapter.watts) W adapter"
     }
 }

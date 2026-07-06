@@ -168,6 +168,21 @@ public final class DaemonClientModel: ObservableObject {
         }
     }
 
+    /// Fetches `get-config` once, off the main thread, on demand (ticket
+    /// T030 — the dashboard's sailing-mode inputs to `StatsDerived
+    /// .timeEstimate`). `refresh()` already keeps `config` fresh on the 5 s
+    /// poll cadence; this is for callers (the Stats window's own live-refresh
+    /// timer) that want an explicit one-shot fetch without going through the
+    /// full `refresh()` (which also re-fetches `get-state` and republishes
+    /// `viewState`). `nil` on any failure, mirroring `getStats(hours:)`.
+    public func getConfig() async -> Config? {
+        let path = socketPath
+        let timeout = requestTimeout
+        return await Task.detached {
+            Self.fetchConfig(socketPath: path, timeout: timeout)
+        }.value
+    }
+
     // MARK: - Mutations (SPEC §3.1, ticket T012)
     //
     // Every control the popover offers (limit slider, sailing toggle, mode
