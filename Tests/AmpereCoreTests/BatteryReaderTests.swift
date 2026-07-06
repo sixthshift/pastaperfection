@@ -105,4 +105,60 @@ import Testing
         #expect(reading.externalConnected == false)
         #expect(reading.temperatureC == 0.0)
     }
+
+    // MARK: - AdapterDetails (SPEC §9.4)
+
+    @Test func adapterDetailsWithWattsAndNameParsesToPayload() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": 96,
+                "Name": "96W USB-C Power Adapter"
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+
+        #expect(adapter?.watts == 96)
+        #expect(adapter?.name == "96W USB-C Power Adapter")
+    }
+
+    @Test func adapterDetailsAbsentYieldsNilAdapter() {
+        let adapter = BatteryReader.parseAdapter([:])
+        #expect(adapter == nil)
+    }
+
+    @Test func adapterDetailsWithMistypedWattsYieldsNilAdapter() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": "96",
+                "Name": "96W USB-C Power Adapter"
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+        #expect(adapter == nil)
+    }
+
+    @Test func adapterDetailsWithNameAndDescriptionAbsentYieldsPayloadWithNilName() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": 96
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+
+        #expect(adapter?.watts == 96)
+        #expect(adapter?.name == nil)
+    }
+
+    @Test func adapterDetailsFallsBackToDescriptionWhenNameAbsent() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": 61,
+                "Description": "61W USB-C Power Adapter"
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+
+        #expect(adapter?.watts == 61)
+        #expect(adapter?.name == "61W USB-C Power Adapter")
+    }
 }

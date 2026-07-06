@@ -24,6 +24,23 @@ public enum BatteryReader {
         Key.cycleCount, Key.appleRawMaxCapacity, Key.designCapacity, Key.amperage, Key.voltage
     ]
 
+    /// SPEC §9.4 key names for the `AdapterDetails` sub-dictionary of the
+    /// same `AppleSmartBattery` service dictionary.
+    private enum AdapterKey {
+        static let details = "AdapterDetails"
+        static let watts = "Watts"
+        static let name = "Name"
+        static let description = "Description"
+    }
+
+    /// Shared `Any? -> Int?` coercion (`NSNumber` or `Int`), used by both
+    /// `parse(_:)` and `parseAdapter(_:)`.
+    private static func intValue(_ value: Any?) -> Int? {
+        if let n = value as? NSNumber { return n.intValue }
+        if let i = value as? Int { return i }
+        return nil
+    }
+
     /// Parses a raw IORegistry-style dictionary into a `BatteryReading`.
     ///
     /// Pure and total: missing or mistyped keys fall back to sensible
@@ -37,9 +54,7 @@ public enum BatteryReader {
         }
 
         func intValue(_ key: String) -> Int? {
-            if let n = dict[key] as? NSNumber { return n.intValue }
-            if let i = dict[key] as? Int { return i }
-            return nil
+            Self.intValue(dict[key])
         }
 
         func boolValue(_ key: String) -> Bool? {
@@ -98,18 +113,53 @@ public enum BatteryReader {
         )
     }
 
+    /// Parses the `AdapterDetails` sub-dictionary of the same injected
+    /// `AppleSmartBattery` dict (SPEC §9.4): `Watts` (`Int`) is required;
+    /// `Name`, falling back to `Description`, is optional. Pure and total,
+    /// matching `parse(_:)`'s style — an absent `AdapterDetails`
+    /// sub-dictionary, or a missing/mistyped `Watts`, both yield `nil`
+    /// rather than crashing or inventing a value. Kept separate from
+    /// `parse(_:)`/`BatteryReading` (whose shape is frozen — see
+    /// `BatteryState.swift`) since this is an independently-optional read of
+    /// the same underlying dict.
+    public static func parseAdapter(_ dict: [String: Any]) -> AdapterPayload? {
+        guard let details = dict[AdapterKey.details] as? [String: Any] else { return nil }
+        guard let watts = intValue(details[AdapterKey.watts]) else { return nil }
+        let name = (details[AdapterKey.name] as? String) ?? (details[AdapterKey.description] as? String)
+        return AdapterPayload(watts: watts, name: name)
+    }
+
     /// Live path: fetches the `AppleSmartBattery` IORegistry service
     /// dictionary and parses it. Read-only (`IOServiceGetMatchingService` +
     /// `IORegistryEntryCreateCFProperties`) — no root privileges required.
     /// Falls back to an empty (incomplete) reading if the service or its
     /// properties can't be obtained, never crashes.
     public static func readLive() -> BatteryReading {
+        parse(liveServiceDict() ?? [:])
+    }
+
+    /// Live path for adapter details: the same `AppleSmartBattery` registry
+    /// lookup as `readLive()`, parsed via `parseAdapter`. `nil` if the
+    /// service/properties can't be obtained (matches `readLive()`'s
+    /// never-crash fallback).
+    public static func readLiveAdapter() -> AdapterPayload? {
+        guard let props = liveServiceDict() else { return nil }
+        return parseAdapter(props)
+    }
+
+    /// Fetches the raw `AppleSmartBattery` IORegistry service dictionary.
+    /// Read-only (`IOServiceGetMatchingService` +
+    /// `IORegistryEntryCreateCFProperties`) — no root privileges required.
+    /// `nil` if the service or its properties can't be obtained; never
+    /// crashes. Shared by `readLive()` and `readLiveAdapter()` so both read
+    /// the exact same dict.
+    private static func liveServiceDict() -> [String: Any]? {
         let service = IOServiceGetMatchingService(
             kIOMainPortDefault,
             IOServiceMatching("AppleSmartBattery")
         )
         guard service != 0 else {
-            return parse([:])
+            return nil
         }
         defer { IOObjectRelease(service) }
 
@@ -124,9 +174,9 @@ public enum BatteryReader {
               let cfProps = propsUnmanaged?.takeRetainedValue(),
               let props = cfProps as? [String: Any]
         else {
-            return parse([:])
+            return nil
         }
 
-        return parse(props)
+        return props
     }
 }

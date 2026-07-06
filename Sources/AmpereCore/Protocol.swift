@@ -189,6 +189,22 @@ public enum PauseReason: String, Codable, Equatable, Sendable {
     case heat
 }
 
+/// Charging adapter details, on the `get-state` payload (SPEC §9.4): a pure
+/// read of the `AdapterDetails` sub-dictionary in the `AppleSmartBattery`
+/// registry entry (`BatteryReader.parseAdapter(_:)`). `nil` when no adapter
+/// details are available (no adapter connected, or the registry didn't
+/// expose the sub-dictionary) — Phase 5 never writes SMC keys, this is a
+/// read-only projection.
+public struct AdapterPayload: Codable, Equatable, Sendable {
+    public var watts: Int
+    public var name: String?
+
+    public init(watts: Int, name: String? = nil) {
+        self.watts = watts
+        self.name = name
+    }
+}
+
 /// `get-state`'s `data` payload (SPEC §3.1 + this ticket's amendments:
 /// `pauseReason` and the `writeVerified` firmware-change canary).
 ///
@@ -211,6 +227,10 @@ public struct GetStatePayload: Equatable, Sendable {
     /// Firmware-change canary: `false` if the last SMC write was read back
     /// and had no effect (SPEC §4).
     public var writeVerified: Bool
+    /// Charging adapter details (SPEC §9.4). `nil` when absent from JSON
+    /// (old-daemon compat) or when the daemon has none to report (e.g. no
+    /// adapter connected).
+    public var adapter: AdapterPayload?
 
     public init(
         percent: Int,
@@ -224,7 +244,8 @@ public struct GetStatePayload: Equatable, Sendable {
         temperatureC: Double,
         health: HealthPayload,
         calibration: CalibrationPayload?,
-        writeVerified: Bool = true
+        writeVerified: Bool = true,
+        adapter: AdapterPayload? = nil
     ) {
         self.percent = percent
         self.isCharging = isCharging
@@ -238,13 +259,15 @@ public struct GetStatePayload: Equatable, Sendable {
         self.health = health
         self.calibration = calibration
         self.writeVerified = writeVerified
+        self.adapter = adapter
     }
 }
 
 extension GetStatePayload: Codable {
     private enum CodingKeys: String, CodingKey {
         case percent, isCharging, externalConnected, chargingPaused, pauseReason,
-             adapterDisabled, mode, limit, temperatureC, health, calibration, writeVerified
+             adapterDisabled, mode, limit, temperatureC, health, calibration, writeVerified,
+             adapter
     }
 
     public init(from decoder: Decoder) throws {
@@ -261,6 +284,7 @@ extension GetStatePayload: Codable {
         health = try container.decode(HealthPayload.self, forKey: .health)
         calibration = try container.decodeIfPresent(CalibrationPayload.self, forKey: .calibration)
         writeVerified = try container.decodeIfPresent(Bool.self, forKey: .writeVerified) ?? true
+        adapter = try container.decodeIfPresent(AdapterPayload.self, forKey: .adapter)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -285,6 +309,7 @@ extension GetStatePayload: Codable {
             try container.encodeNil(forKey: .calibration)
         }
         try container.encode(writeVerified, forKey: .writeVerified)
+        try container.encodeIfPresent(adapter, forKey: .adapter)
     }
 }
 
@@ -296,10 +321,10 @@ extension GetStatePayload: Codable {
 /// what's actually persisted to `telemetry.jsonl`; this is the wire shape
 /// for handing existing samples back over the socket.
 ///
-/// `amperageMA`/`voltageMV` decode with a default of `0` when absent (via
-/// hand-rolled `init(from:)`, matching `Config`'s defaulting style), so
-/// existing telemetry/wire payloads recorded before this ticket still decode
-/// cleanly.
+/// `amperageMA`/`voltageMV`/`chargingPaused` decode with a default (`0`/
+/// `false`) when absent (via hand-rolled `init(from:)`, matching `Config`'s
+/// defaulting style), so existing telemetry/wire payloads recorded before
+/// this ticket still decode cleanly.
 public struct StatsSample: Codable, Equatable, Sendable {
     public var timestamp: Date
     public var percent: Int
@@ -310,6 +335,10 @@ public struct StatsSample: Codable, Equatable, Sendable {
     public var amperageMA: Int
     /// Millivolts. Defaults to `0` when absent from JSON.
     public var voltageMV: Int
+    /// Whether the daemon was actively inhibiting charging (limit or heat)
+    /// at sample time. Defaults to `false` when absent from JSON (old-daemon
+    /// compat).
+    public var chargingPaused: Bool
 
     public init(
         timestamp: Date,
@@ -317,7 +346,8 @@ public struct StatsSample: Codable, Equatable, Sendable {
         isCharging: Bool,
         temperatureC: Double,
         amperageMA: Int = 0,
-        voltageMV: Int = 0
+        voltageMV: Int = 0,
+        chargingPaused: Bool = false
     ) {
         self.timestamp = timestamp
         self.percent = percent
@@ -325,10 +355,11 @@ public struct StatsSample: Codable, Equatable, Sendable {
         self.temperatureC = temperatureC
         self.amperageMA = amperageMA
         self.voltageMV = voltageMV
+        self.chargingPaused = chargingPaused
     }
 
     private enum CodingKeys: String, CodingKey {
-        case timestamp, percent, isCharging, temperatureC, amperageMA, voltageMV
+        case timestamp, percent, isCharging, temperatureC, amperageMA, voltageMV, chargingPaused
     }
 
     public init(from decoder: Decoder) throws {
@@ -339,6 +370,7 @@ public struct StatsSample: Codable, Equatable, Sendable {
         temperatureC = try container.decode(Double.self, forKey: .temperatureC)
         amperageMA = try container.decodeIfPresent(Int.self, forKey: .amperageMA) ?? 0
         voltageMV = try container.decodeIfPresent(Int.self, forKey: .voltageMV) ?? 0
+        chargingPaused = try container.decodeIfPresent(Bool.self, forKey: .chargingPaused) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -349,6 +381,26 @@ public struct StatsSample: Codable, Equatable, Sendable {
         try container.encode(temperatureC, forKey: .temperatureC)
         try container.encode(amperageMA, forKey: .amperageMA)
         try container.encode(voltageMV, forKey: .voltageMV)
+        try container.encode(chargingPaused, forKey: .chargingPaused)
+    }
+}
+
+public extension StatsSample {
+    /// Pure projection from `TelemetrySample` (`Telemetry.swift`'s persisted
+    /// shape) to the `get-stats` wire shape. Lives in `AmpereCore` — not
+    /// `Daemon.swift`, an executable target that isn't importable from tests
+    /// — so it's unit-testable; `Daemon.getStats(hours:)` calls this rather
+    /// than hand-rolling an equivalent field-by-field mapping.
+    init(_ sample: TelemetrySample) {
+        self.init(
+            timestamp: sample.ts,
+            percent: sample.percent,
+            isCharging: sample.isCharging,
+            temperatureC: sample.temperatureC,
+            amperageMA: sample.amperageMA,
+            voltageMV: sample.voltageMV,
+            chargingPaused: sample.chargingPaused
+        )
     }
 }
 

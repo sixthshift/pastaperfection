@@ -221,6 +221,42 @@ import Foundation
         #expect(decoded.writeVerified == false)
     }
 
+    /// `adapter` (SPEC §9.4): absent from JSON decodes to `nil` (old-daemon
+    /// compat), matching `writeVerified`'s defaulting style.
+    @Test func getStatePayloadAdapterDefaultsNilWhenAbsentFromJSON() throws {
+        let json = """
+        {"percent":75,"isCharging":false,"externalConnected":true,"chargingPaused":false,
+        "adapterDisabled":false,"mode":"limit","limit":80,"temperatureC":30.1,
+        "health":{"maxCapacity":4382,"designCapacity":5088,"cycleCount":412},"calibration":null}
+        """
+        let payload = try ProtocolCodec.decode(GetStatePayload.self, from: json)
+        #expect(payload.adapter == nil)
+    }
+
+    /// `adapter` round-trips with both `watts` and `name` present.
+    @Test func getStatePayloadAdapterRoundTripsWithWattsAndName() throws {
+        var payload = makePayload(pauseReason: nil)
+        payload.adapter = AdapterPayload(watts: 96, name: "96W USB-C Power Adapter")
+
+        let line = try ProtocolCodec.encodeLine(payload)
+        let decoded = try ProtocolCodec.decode(GetStatePayload.self, from: line)
+
+        #expect(decoded.adapter?.watts == 96)
+        #expect(decoded.adapter?.name == "96W USB-C Power Adapter")
+    }
+
+    /// `adapter` round-trips in the watts-only variant (`name` nil).
+    @Test func getStatePayloadAdapterRoundTripsWithWattsOnly() throws {
+        var payload = makePayload(pauseReason: nil)
+        payload.adapter = AdapterPayload(watts: 61)
+
+        let line = try ProtocolCodec.encodeLine(payload)
+        let decoded = try ProtocolCodec.decode(GetStatePayload.self, from: line)
+
+        #expect(decoded.adapter?.watts == 61)
+        #expect(decoded.adapter?.name == nil)
+    }
+
     // MARK: - get-config response reuses Config
 
     @Test func getConfigResponseRoundTripsUsingConfigType() throws {
@@ -272,6 +308,85 @@ import Foundation
         #expect(decoded.percent == 60)
         #expect(decoded.amperageMA == 0)
         #expect(decoded.voltageMV == 0)
+    }
+
+    /// Old-daemon compat (this ticket): a `StatsSample` JSON payload without
+    /// `chargingPaused` must still decode, defaulting the new field to
+    /// `false`.
+    @Test func statsSampleDecodesWithoutChargingPausedKeyDefaultingFalse() throws {
+        let json = """
+        {"timestamp":"2023-11-14T22:13:20Z","percent":60,"isCharging":true,"temperatureC":28.5,
+        "amperageMA":1200,"voltageMV":12500}
+        """
+        let decoded = try ProtocolCodec.decode(StatsSample.self, from: json)
+
+        #expect(decoded.chargingPaused == false)
+    }
+
+    /// Encoding must always emit the `chargingPaused` key, whichever value
+    /// it holds — new daemons must always be able to tell an old client
+    /// "not paused" from "field absent" is no longer a distinction a peer
+    /// needs to make.
+    @Test func statsSampleEncodingAlwaysEmitsChargingPausedKey() throws {
+        let notPaused = StatsSample(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            percent: 60, isCharging: true, temperatureC: 28.5, chargingPaused: false
+        )
+        let paused = StatsSample(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            percent: 60, isCharging: true, temperatureC: 28.5, chargingPaused: true
+        )
+
+        let notPausedLine = try ProtocolCodec.encodeLine(notPaused)
+        let pausedLine = try ProtocolCodec.encodeLine(paused)
+
+        #expect(notPausedLine.contains(#""chargingPaused":false"#))
+        #expect(pausedLine.contains(#""chargingPaused":true"#))
+    }
+
+    /// Contrast test (this ticket): the pure `AmpereCore` mapping from
+    /// `TelemetrySample` to the wire `StatsSample` (`StatsSample.init(_:)`)
+    /// carries `chargingPaused` through — two `TelemetrySample`s identical
+    /// except `chargingPaused` must map to wire samples differing exactly in
+    /// that field, and nothing else.
+    @Test func statsSampleFromTelemetrySampleMapsChargingPausedAndNothingElseDiffers() throws {
+        let base = TelemetrySample(
+            ts: Date(timeIntervalSince1970: 1_700_000_000),
+            percent: 60,
+            isCharging: true,
+            temperatureC: 28.5,
+            amperageMA: 1200,
+            voltageMV: 12500,
+            chargingPaused: false
+        )
+        let pausedTelemetry = TelemetrySample(
+            ts: base.ts,
+            percent: base.percent,
+            isCharging: base.isCharging,
+            temperatureC: base.temperatureC,
+            amperageMA: base.amperageMA,
+            voltageMV: base.voltageMV,
+            chargingPaused: true
+        )
+
+        let notPausedWire = StatsSample(base)
+        let pausedWire = StatsSample(pausedTelemetry)
+
+        #expect(notPausedWire.chargingPaused == false)
+        #expect(pausedWire.chargingPaused == true)
+
+        // Everything else must be unchanged between the two mapped samples.
+        #expect(notPausedWire.timestamp == pausedWire.timestamp)
+        #expect(notPausedWire.percent == pausedWire.percent)
+        #expect(notPausedWire.isCharging == pausedWire.isCharging)
+        #expect(notPausedWire.temperatureC == pausedWire.temperatureC)
+        #expect(notPausedWire.amperageMA == pausedWire.amperageMA)
+        #expect(notPausedWire.voltageMV == pausedWire.voltageMV)
+
+        var expectedPausedWire = notPausedWire
+        expectedPausedWire.chargingPaused = true
+        #expect(pausedWire == expectedPausedWire)
+        #expect(notPausedWire != pausedWire)
     }
 
     // MARK: - Response envelope shape

@@ -54,6 +54,11 @@ struct CalibrationScheduleState: Codable, Equatable {
 /// charging + adapter and exit 0 (SPEC §1, §3 — locked).
 public final class Daemon {
     public typealias Reader = () -> BatteryReading
+    /// Adapter-details reader (SPEC §9.4): a separate, independently-optional
+    /// read of the same `AppleSmartBattery` dict `Reader` reads — kept apart
+    /// from `Reader`/`BatteryReading` since `BatteryReading`'s shape is
+    /// frozen (see `BatteryState.swift`).
+    public typealias AdapterReader = () -> AdapterPayload?
 
     /// Default location of the daemon's config file (SPEC §3).
     public static let defaultConfigURL = URL(fileURLWithPath: "/Library/Application Support/Ampere/config.json")
@@ -79,6 +84,7 @@ public final class Daemon {
     public let stateQueue = DispatchQueue(label: "com.ampere.daemon.state")
 
     private let reader: Reader
+    private let adapterReader: AdapterReader
     private let adapter: SMCAdapter
     private let configURL: URL
     private let calibrationScheduleURL: URL
@@ -89,6 +95,10 @@ public final class Daemon {
     /// Most recent battery reading, refreshed on every `evaluate()`. Backs
     /// `get-state`'s live fields (SPEC §3.1) between poll ticks.
     private var lastReading: BatteryReading = BatteryReader.parse([:])
+    /// Most recent adapter details (SPEC §9.4), refreshed alongside
+    /// `lastReading` on every `evaluate()`. `nil` when no adapter details are
+    /// available.
+    private var lastAdapterInfo: AdapterPayload?
     /// Counts 30 s poll timer ticks so telemetry samples at every other tick
     /// (SPEC §3: 60 s cadence) rather than every 30 s poll.
     private var timerTickCount = 0
@@ -122,11 +132,13 @@ public final class Daemon {
         telemetryURL: URL = Daemon.defaultTelemetryURL,
         calibrationScheduleURL: URL = Daemon.defaultCalibrationScheduleURL,
         reader: @escaping Reader = { BatteryReader.readLive() },
+        adapterReader: @escaping AdapterReader = { BatteryReader.readLiveAdapter() },
         adapter: SMCAdapter = Daemon.liveAdapter()
     ) {
         self.configURL = configURL
         self.calibrationScheduleURL = calibrationScheduleURL
         self.reader = reader
+        self.adapterReader = adapterReader
         self.adapter = adapter
         self.config = Daemon.loadOrCreateConfig(at: configURL)
         self.telemetryLog = TelemetryLog(url: telemetryURL)
@@ -201,6 +213,7 @@ public final class Daemon {
     private func evaluate() {
         let reading = reader()
         lastReading = reading
+        lastAdapterInfo = adapterReader()
         let (commands, next) = decide(reading.state, config, state, now: Date())
         adapter.apply(commands)
         state = next
@@ -476,7 +489,8 @@ public final class Daemon {
             calibration: state.calibration.map {
                 CalibrationPayload(phase: $0.phase.rawValue, startedAt: $0.phaseEnteredAt)
             },
-            writeVerified: adapter.lastWriteVerified
+            writeVerified: adapter.lastWriteVerified,
+            adapter: reading.externalConnected ? lastAdapterInfo : nil
         )
     }
 
@@ -552,16 +566,7 @@ public final class Daemon {
     /// `get-stats` (SPEC §3.1): reads persisted telemetry samples from the
     /// last `hours` hours and projects them to the wire shape (`StatsSample`).
     func getStats(hours: Int) -> StatsPayload {
-        let samples = telemetryLog.read(hoursBack: Double(hours)).map { sample in
-            StatsSample(
-                timestamp: sample.ts,
-                percent: sample.percent,
-                isCharging: sample.isCharging,
-                temperatureC: sample.temperatureC,
-                amperageMA: sample.amperageMA,
-                voltageMV: sample.voltageMV
-            )
-        }
+        let samples = telemetryLog.read(hoursBack: Double(hours)).map(StatsSample.init)
         return StatsPayload(samples: samples)
     }
 
