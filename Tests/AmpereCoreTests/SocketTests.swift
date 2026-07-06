@@ -345,4 +345,47 @@ import Darwin
             #expect(decoded.ok == true)
         }
     }
+
+    // MARK: - T026 regression: large responses must not be truncated by
+    // inherited O_NONBLOCK on accepted fds
+    //
+    // The listen fd is deliberately `O_NONBLOCK` (see `SocketServer.start()`,
+    // needed so `acceptPending()`'s drain loop can terminate on
+    // EAGAIN/EWOULDBLOCK instead of blocking forever). On macOS/BSD, a socket
+    // returned by `accept()` INHERITS that flag from the listen fd — it is
+    // not reset to blocking automatically. `Connection.writeAll` only
+    // retries on `EINTR`; on a non-blocking fd, once a response outgrows the
+    // unix-domain socket's small kernel send buffer (a few KB), `write()`
+    // returns -1/EAGAIN and `writeAll` treats that as a fatal error, closing
+    // the connection mid-response. Small responses never fill that buffer,
+    // so this went unnoticed until a real handler (`get-stats`, ~60KB)
+    // tripped it in production. This test's handler returns a single
+    // response line far larger than any unix-socket buffer (250,000 chars)
+    // ending in a distinctive marker character right before the newline, so
+    // truncation is unambiguous: the client must receive the exact length
+    // AND the trailing marker.
+    @Test func largeResponseLineIsDeliveredIntactNotTruncated() throws {
+        let path = Self.makeSocketPath(10)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let markerChar: Character = "Z"
+        let bodyLength = 250_000
+        let largeBody = String(repeating: "x", count: bodyLength - 1) + String(markerChar)
+        #expect(largeBody.count == bodyLength)
+        #expect(largeBody.last == markerChar)
+
+        let handler: (String) -> String = { _ in largeBody }
+        let server = SocketServer(path: path, mode: 0o660, handler: handler)
+        try server.start()
+        defer { server.stop() }
+
+        let client = SocketClient()
+        try client.connect(path: path)
+        defer { client.close() }
+
+        let responseLine = try client.request(#"{"cmd":"get-stats"}"#, timeout: 5)
+
+        #expect(responseLine.count == bodyLength)
+        #expect(responseLine.last == markerChar)
+    }
 }

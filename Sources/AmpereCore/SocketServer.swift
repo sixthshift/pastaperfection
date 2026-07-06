@@ -198,13 +198,29 @@ public final class SocketServer {
             var noSigPipe: Int32 = 1
             _ = setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
 
-            // Accepted fds are intentionally left blocking: reads are driven
-            // by `DispatchSourceRead`, which only fires when data is
-            // actually available, so a blocking `read()` there never stalls.
+            // T026: on BSD-derived kernels (macOS included), a socket
+            // accepted from a listen fd INHERITS that listen fd's
+            // `O_NONBLOCK` flag — `accept()` does not reset it. Our listen
+            // fd is deliberately `O_NONBLOCK` (see `start()`), so every
+            // `clientFD` here comes back non-blocking unless we explicitly
+            // clear it. Left non-blocking, `Connection.writeAll` (which only
+            // handles `EINTR`) would see `write()` return -1/EAGAIN as soon
+            // as a response outgrows the unix-domain socket's small kernel
+            // send buffer (~8KB) and treat that as fatal, closing the
+            // connection mid-response — the live bug: `get-stats` responses
+            // (~60KB) were silently truncated while small responses never
+            // hit the buffer limit and so never revealed it. Accepted fds
+            // are intentionally left blocking: reads are driven by
+            // `DispatchSourceRead`, which only fires when data is actually
+            // available, so a blocking `read()` there never stalls.
             // `writeAll` below can still block on a peer that stops draining
             // its receive buffer — that only parks this one connection's own
             // serial queue, never the shared accept/listen queue, which is
             // an acceptable, documented trade-off (see `writeAll`).
+            let flags = fcntl(clientFD, F_GETFL, 0)
+            if flags >= 0 {
+                _ = fcntl(clientFD, F_SETFL, flags & ~O_NONBLOCK)
+            }
             connectionsDoneGroup.enter()
             let connection = Connection(fd: clientFD, handler: handler) { [weak self] connection in
                 // T023: fired from the connection's cancel handler AFTER its
