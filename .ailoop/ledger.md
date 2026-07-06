@@ -474,3 +474,16 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
     logic forced into pure StatsFormatting/StatsDerived helpers with contrast
     tests; visual checks live ONLY in the phase [HW] gate. make-app.sh output
     lint+codesign checked mechanically.
+
+[0051] T027 — done (attempt 1)
+  decision: continue
+  why: re-verify green on worktree AND merged tree (133/133, was 122); scope
+       diff = exactly the 5 contracted files; gaming read clean — genuine
+       contrast test (paused vs unpaused telemetry → wire samples differ only
+       in chargingPaused, all other fields asserted equal); daemon call site
+       uses the AmpereCore mapping (.map(StatsSample.init)), duplicate removed.
+       Accepted deviation, builder-flagged honestly: BatteryReading is frozen,
+       so adapter details ship as BatteryReader.parseAdapter/readLiveAdapter +
+       injectable Daemon.AdapterReader closure — additive, in contract files.
+  attempt: 1/3
+  evidence: on ticket; merged at main
