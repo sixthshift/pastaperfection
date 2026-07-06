@@ -394,3 +394,12 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        calibration key, adapterDisabled false, mode limit 2s later); DiagT025
        output (decide preserves calibration; decode -> calibrateStart;
        payload encodes object when present); SPEC §3.3 amended in place
+
+[0044] T025 — done (attempt 1, semantic-amendment repair)
+  decision: continue
+  why: re-verify green twice; test modifications audited — exactly the 3
+       amendment-contradicting tests changed, each with its genuine-unplug
+       counterpart preserved unmodified (no coverage lost, no weakening);
+       settle-window boundary tested both sides (5s/15s).
+  attempt: 1/3
+  evidence: 121/121 x2; grep-verified suppression + encodeNil + gate section

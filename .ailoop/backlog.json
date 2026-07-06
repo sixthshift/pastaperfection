@@ -460,7 +460,7 @@
     {
       "id": "T025",
       "title": "Repair: self-induced-unplug suppression (discharge/calibration self-abort) + explicit calibration null + gate discharge check",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T023"
       ],
@@ -475,7 +475,7 @@
       "context": "Diagnosis (fully verified): decide() preserves calibration, protocol decodes calibrate-start correctly, payload encodes calibration when present — but disabling the adapter makes macOS report externalConnected=false, which SPEC pre-amendment rules treated as unplug -> instant self-abort of calibration AND self-cancel of the discharge-to-limit one-shot. Fix per amended SPEC §3.3 (read it): (1) ControlCore: track adapter assertion via lastCommands.contains(.disableAdapter) and an adapterEnabledAt: Date? stamped when enableAdapter is emitted; when adapter is asserted off OR within 10s of re-enable (settle window), externalConnected==false does NOT cancel the discharge one-shot and does NOT abort calibration — the active mode keeps driving (floors 20/15 remain). Existing tests that contradict the amended rule (unplug-cancels tests whose state has adapter asserted off) may be UPDATED — list each changed test in your report with justification; tests where adapter was NOT asserted (true unplug while plugged-in state) must stay green unmodified. (2) Protocol.swift: GetStatePayload custom encode must emit explicit \"calibration\":null when nil (SPEC §3.1 shows explicit null; currently the key is omitted) — extend ProtocolTests with a contrast (nil -> \"calibration\":null present in JSON; non-nil -> object). (3) scripts/hw-gate.sh: add a discharge-to-limit check before the calibration section: with limit 80 and battery >80, send action discharge-to-limit, within 15s expect get-state adapterDisabled:true AND pmset shows Battery Power; then set-limit to current percent (completes the one-shot immediately), within 15s expect adapterDisabled:false and AC Power restored; restore limit 80. Keep existing calibration greps (explicit null now makes them correct).",
       "acceptance": "- new ControlCore contrast tests: (a) calibration discharge phase + externalConnected false + lastCommands contains disableAdapter -> calibration SURVIVES and keeps disableAdapter; (b) same but adapter NOT asserted (genuine unplug) -> aborts as before; (c) discharge one-shot analog of both; (d) settle window: enableAdapter emitted at t, externalConnected false at t+5s -> no abort; at t+15s still false -> abort\n- ProtocolTests: calibration nil encodes literal \"calibration\":null (string assert), non-nil encodes object (contrast)\n- bash -n scripts/hw-gate.sh clean; discharge check present\n- swift build + bash scripts/test.sh green (116 baseline; only amendment-contradicting tests changed, each listed)",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (5 files); 121/121 twice; suppression logic per amended SPEC §3.3 (lastCommands assertion + adapterEnabledAt 10s settle window, stamped in emitAdapter); encodeNil for calibration; gate discharge check present, bash -n clean; 3 pre-existing tests modified, all three contradicted the amendment and each genuine-unplug variant preserved as a separate test with original expectations. Merged; release rebuilt."
     }
   ]
 }
