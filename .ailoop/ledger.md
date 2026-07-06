@@ -341,3 +341,21 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        Awaiting user gate re-run for the end-to-end confirmation.
   attempt: 1/3
   evidence: 114/114; live 'permission denied … socket group mismatch' exit 1
+
+[0040] phase-1 — [HW] gate RED (severe): daemon permanent main-queue deadlock
+  decision: decompose (repairs T023 core + T024 tooling)
+  why: telemetry heartbeat (60 s, main queue) ran 09:12→13:00:50 then stopped
+       forever, coinciding exactly with the first client to disconnect
+       mid-request (nc -w 1). All socket requests hang in
+       DispatchQueue.main.sync; control loop AND SIGTERM restore path share
+       the dead main queue — safety rail broken (charging stayed inhibited
+       with no live restore path). Contributing defects: CFRunLoopRun+main.sync
+       bridging, blocking accept() parking the server queue (missing
+       O_NONBLOCK), no SIGPIPE guard, and nc-based gate tooling that
+       disconnects mid-request (trigger) or hangs (persistent connections).
+       Escaped-bug rule: T023 acceptance encodes the exact trigger
+       (disconnect-without-reading then next client must get a response) as a
+       permanent regression test.
+  evidence: telemetry.jsonl last ts 2026-07-06T03:00:50Z vs date 13:22 AEST;
+       state requests hang; runs=1 pid stable (no crash); user's 11:58
+       config.json mtime proves requests served before the trigger
