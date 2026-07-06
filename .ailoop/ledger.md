@@ -518,3 +518,25 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        precedence covered. Third consecutive first-attempt ticket.
   attempt: 1/3
   evidence: on ticket; merged at main
+
+[0055] T030 — done (attempt 1)
+  decision: continue
+  why: re-verify green on worktree AND merged tree (176/176, was 163); scope
+       exact; §9.9 tripwire scan negative; live-refresh no-ops on
+       window.isVisible (locked mechanism, no onDisappear reliance);
+       autonomous phase-oracle items re-run on merged tree: tests + make-app
+       + plutil + codesign all green. Fourth consecutive first-attempt ticket.
+  attempt: 1/3
+  evidence: on ticket; merged at main
+
+[0056] chunk boundary + backlog drained — Phase 5 autonomous oracle GREEN
+  decision: end chunk; phase NOT closed yet
+  state: 30/30 done. All autonomous Phase 5 checks pass on the merged tree.
+       Phase 5 closes only after the [HW] gate (oracle.md Phase 5): human +
+       charger + daemon reinstall (new protocol fields need the new ampered:
+       sudo ampere-cli uninstall && sudo ampere-cli install, or equivalent),
+       then: voltage/amperage vs ioreg ±1; charger row watts + unplug/replug
+       ≤10 s (also proves live refresh); time-to-limit finite below limit,
+       hidden at limit; four ranges render; paused shading over a held
+       period; power sign flips across plug/unplug; session list consistent
+       with the day. Archive rotation stays test-gated (live rotation ≈14 d).
