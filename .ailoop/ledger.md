@@ -487,3 +487,24 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        injectable Daemon.AdapterReader closure — additive, in contract files.
   attempt: 1/3
   evidence: on ticket; merged at main
+
+[0052] T028 — done (attempt 1)
+  decision: continue
+  why: re-verify green on worktree AND merged tree (144/144, was 133); scope
+       exact; gaming read clean. Red-team requirements held up: bucket test
+       asserts NUMERIC aggregates (1/3 pausedFraction ±0.001), rotation test
+       spaces samples 1000 s apart so each archive bucket is attributable to
+       a specific dropped line (not merely "archive non-empty"). Notable good
+       call by builder: get-stats "hours":0=all implemented via new readAll()
+       instead of changing read(hoursBack:0)'s pre-existing empty-window
+       contract — existing call sites untouched and documented.
+  attempt: 1/3
+  evidence: on ticket; merged at main
+
+[0053] chunk boundary — cap 2 reached (T027, T028 closed)
+  decision: end chunk healthy
+  state: 28/30 done. Scheduler next: T029 (pure derived logic — StatsDerived
+       time-to-limit + sessions) ready now; T030 (dashboard UI) blocked on
+       T029 only. Phase 5 [HW] gate runs at the checkpoint AFTER T030 merges
+       (needs human + charger + daemon reinstall). No escalations, no gaming,
+       no decompositions this chunk; both tickets first-attempt green.
