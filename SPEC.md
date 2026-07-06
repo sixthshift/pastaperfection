@@ -115,6 +115,16 @@ Decision rules (locked):
 - discharge-to-limit: disableAdapter until `percent <= limit`, then enableAdapter,
   return to limit mode. **Hard floor: never let percent go below 20 — if it does,
   enableAdapter + allowCharging + revert to limit mode.**
+- **Self-induced-unplug suppression (amended 2026-07-06, user-approved):** when the
+  daemon itself has the adapter asserted off (`lastCommands` contains
+  `.disableAdapter`), `externalConnected == false` is the EXPECTED consequence of
+  our own switch and MUST NOT trigger the unplug rules below (no discharge-cancel,
+  no calibration abort — macOS cannot distinguish our adapter-off from a pulled
+  cable). The 20%/15% floors are the safety net during adapter-off operation. A
+  REAL unplug is re-detected whenever the adapter is (re-)enabled: after emitting
+  enableAdapter, allow a settle window (10 s, tracked via an
+  `adapterEnabledAt: Date?` in ControlState) before treating a persisting
+  `externalConnected == false` as a genuine unplug.
 - top-up: allow until `percent >= 100` (or `isCharging == false` at ≥ 99), then limit mode.
 - calibration: phases `discharge(→15) → charge(→100) → hold(1 h) → done(limit mode)`;
   floor 15% in discharge phase; unplug or abort at any point → restore limit mode.

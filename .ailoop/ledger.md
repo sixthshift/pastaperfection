@@ -377,3 +377,20 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        judged benign: harness attribute, zero test-body changes.
   attempt: 1/3
   evidence: 116/116 x2 on worktree and merged tree; release + bundle rebuilt
+
+[0043] phase-4 — [HW] gate red root-caused: SPEC design flaw (self-induced
+       unplug); SEMANTIC oracle amendment USER-APPROVED; T025 spawned
+  decision: amend-oracle (semantic, escalated per SKILL.md — user chose
+       "suppress while adapter-off") + decompose (repair T025)
+  why: coordinator diagnostics (temporary DiagT025 test, deleted after use)
+       proved decide()/protocol/payload all correct in isolation; live
+       sequence: calibrate-start -> discharge -> disableAdapter -> macOS
+       reports externalConnected=false -> IOPS re-evaluate -> pre-amendment
+       unplug rule aborts calibration <1s. Same flaw self-cancels the
+       discharge-to-limit one-shot (gate previously had no discharge check —
+       added in T025). Secondary: get-state omits "calibration" key when nil
+       vs SPEC §3.1 explicit null (broke the abort check's grep).
+  evidence: raw get-state transcripts pre/post calibrate-start (ok:true, no
+       calibration key, adapterDisabled false, mode limit 2s later); DiagT025
+       output (decide preserves calibration; decode -> calibrateStart;
+       payload encodes object when present); SPEC §3.3 amended in place
