@@ -275,7 +275,15 @@ extension GetStatePayload: Codable {
         try container.encode(limit, forKey: .limit)
         try container.encode(temperatureC, forKey: .temperatureC)
         try container.encode(health, forKey: .health)
-        try container.encodeIfPresent(calibration, forKey: .calibration)
+        // SPEC §3.1 requires the literal `"calibration":null` on the wire
+        // when calibration isn't running (clients key off its presence, not
+        // just its absence) — `encodeIfPresent` would omit the key entirely,
+        // so encode explicit null via `encodeNil` instead.
+        if let calibration {
+            try container.encode(calibration, forKey: .calibration)
+        } else {
+            try container.encodeNil(forKey: .calibration)
+        }
         try container.encode(writeVerified, forKey: .writeVerified)
     }
 }

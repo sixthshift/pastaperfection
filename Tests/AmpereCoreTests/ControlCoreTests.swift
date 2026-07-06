@@ -218,8 +218,31 @@ import Foundation
         #expect(next.lastCommands == state.lastCommands)
     }
 
-    @Test func externalConnectedFalseCancelsDischargingOneShot() {
+    // MODIFIED (SPEC §3.3 amended 2026-07-06): previously asserted that
+    // externalConnected == false always cancels the discharge one-shot. But
+    // this state has the adapter asserted off by us (`.disableAdapter` in
+    // lastCommands) — exactly the self-induced case the amendment says must
+    // NOT be treated as an unplug. Renamed/rewritten below as
+    // `selfInducedUnplugDuringDischargeKeepsDischarging` (percent raised
+    // above the limit so the outcome unambiguously reflects "still
+    // discharging", not "reached the limit").
+    @Test func selfInducedUnplugDuringDischargeKeepsDischarging() {
         let state = ControlState(oneShotMode: .discharging, lastCommands: [.allowCharging, .disableAdapter])
+        let (commands, next) = decide(
+            Self.battery(percent: 85, externalConnected: false), Self.config(), state, now: Self.fixedNow
+        )
+
+        // Adapter is already recorded disabled, so no new command is needed
+        // — the point is that the one-shot survives and keeps driving.
+        #expect(commands.isEmpty)
+        #expect(next.oneShotMode == .discharging)
+        #expect(next.isAdapterDisabled == true)
+    }
+
+    @Test func genuineUnplugDuringDischargeCancelsOneShot() {
+        // Contrast: adapter NOT asserted off (still enabled) — a real
+        // unplug, unchanged from pre-amendment behavior.
+        let state = ControlState(oneShotMode: .discharging, lastCommands: [.allowCharging, .enableAdapter])
         let (commands, next) = decide(
             Self.battery(percent: 50, externalConnected: false), Self.config(), state, now: Self.fixedNow
         )
@@ -425,7 +448,17 @@ import Foundation
         #expect(next.oneShotMode == .none)
     }
 
-    @Test func unplugDuringDischargeRestoresAdapterAndClearsCalibration() {
+    // MODIFIED (SPEC §3.3 amended 2026-07-06): previously asserted that
+    // externalConnected == false during calibration's discharge phase
+    // always aborts calibration and re-enables the adapter. But this state
+    // has the adapter asserted off by us (`.disableAdapter` in
+    // lastCommands) — the self-induced case the amendment protects.
+    // Renamed/rewritten below as
+    // `selfInducedUnplugDuringCalibrationDischargeSurvives`; the genuine
+    // unplug counterpart (adapter not asserted off) is a new test,
+    // `genuineUnplugDuringCalibrationDischargeAborts`, matching the
+    // unmodified pre-amendment behavior.
+    @Test func selfInducedUnplugDuringCalibrationDischargeSurvives() {
         let calibrating = ControlState(
             lastCommands: [.inhibitCharging, .disableAdapter],
             calibration: CalibrationState(phase: .discharge, phaseEnteredAt: Self.fixedNow)
@@ -434,8 +467,69 @@ import Foundation
             Self.battery(percent: 60, externalConnected: false), Self.config(), calibrating, now: Self.fixedNow
         )
 
-        #expect(commands == [.enableAdapter])
+        // Adapter already recorded disabled and charging already recorded
+        // inhibited — nothing new to emit, but calibration keeps driving
+        // the discharge phase rather than aborting.
+        #expect(commands.isEmpty)
+        #expect(next.calibration?.phase == .discharge)
+        #expect(next.isAdapterDisabled == true)
+    }
+
+    @Test func genuineUnplugDuringCalibrationDischargeAborts() {
+        // Contrast: adapter NOT asserted off (still enabled) — a real
+        // unplug, unchanged from pre-amendment behavior.
+        let calibrating = ControlState(
+            lastCommands: [.inhibitCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .discharge, phaseEnteredAt: Self.fixedNow)
+        )
+        let (commands, next) = decide(
+            Self.battery(percent: 60, externalConnected: false), Self.config(), calibrating, now: Self.fixedNow
+        )
+
+        #expect(commands.isEmpty)
         #expect(next.calibration == nil)
         #expect(next.isAdapterDisabled == false)
+    }
+
+    // MARK: - Settle window (SPEC §3.3, amended 2026-07-06)
+
+    @Test func settleWindowAt5SecondsAfterEnableAdapterSuppressesUnplug() {
+        // enableAdapter was just emitted (adapterEnabledAt == fixedNow);
+        // 5 s later externalConnected reports false — still within the 10 s
+        // settle window, so calibration must not abort.
+        let state = ControlState(
+            lastCommands: [.allowCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .charge, phaseEnteredAt: Self.fixedNow),
+            adapterEnabledAt: Self.fixedNow
+        )
+        let (commands, next) = decide(
+            Self.battery(percent: 50, externalConnected: false),
+            Self.config(),
+            state,
+            now: Self.fixedNow.addingTimeInterval(5)
+        )
+
+        #expect(commands.isEmpty)
+        #expect(next.calibration?.phase == .charge)
+    }
+
+    @Test func settleWindowAt15SecondsAfterEnableAdapterTreatsPersistingDisconnectAsGenuineUnplug() {
+        // Contrast: 15 s later — past the 10 s settle window — the same
+        // persisting disconnect is now a genuine unplug, so calibration
+        // aborts.
+        let state = ControlState(
+            lastCommands: [.allowCharging, .enableAdapter],
+            calibration: CalibrationState(phase: .charge, phaseEnteredAt: Self.fixedNow),
+            adapterEnabledAt: Self.fixedNow
+        )
+        let (commands, next) = decide(
+            Self.battery(percent: 50, externalConnected: false),
+            Self.config(),
+            state,
+            now: Self.fixedNow.addingTimeInterval(15)
+        )
+
+        #expect(commands.isEmpty)
+        #expect(next.calibration == nil)
     }
 }

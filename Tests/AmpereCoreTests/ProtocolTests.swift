@@ -151,13 +151,18 @@ import Foundation
         #expect(limitLine.contains(#""pauseReason":"limit""#))
     }
 
+    // MODIFIED (SPEC §3.1 amended: `get-state` must emit an explicit
+    // `"calibration":null` rather than omitting the key). Previously
+    // asserted `!line.contains("calibration")`; that now contradicts the
+    // spec, so this asserts the explicit-null literal instead. Round-trip
+    // decode behavior (calibration decodes back to `nil`) is unchanged.
     @Test func getStatePayloadRoundTripsWithNilPauseReasonAndCalibration() throws {
         let payload = makePayload(pauseReason: nil)
         let response = GetStateResponse.success(payload)
         let line = try ProtocolCodec.encodeLine(response)
 
         #expect(!line.contains("pauseReason"))
-        #expect(!line.contains("calibration"))
+        #expect(line.contains(#""calibration":null"#))
 
         let decoded = try ProtocolCodec.decode(GetStateResponse.self, from: line)
         #expect(decoded.ok == true)
@@ -177,6 +182,23 @@ import Foundation
 
         #expect(decoded.data?.calibration?.phase == "discharge")
         #expect(decoded.data?.calibration?.startedAt == startedAt)
+    }
+
+    /// Contrast test (this ticket): nil calibration must encode the literal
+    /// explicit-null substring; a present calibration must encode as an
+    /// object, never the bare omission either encode could otherwise take.
+    @Test func calibrationEncodesExplicitNullWhenNilAndAsObjectWhenPresent() throws {
+        let nilPayload = makePayload(pauseReason: nil, calibration: nil)
+        let nilLine = try ProtocolCodec.encodeLine(GetStateResponse.success(nilPayload))
+        #expect(nilLine.contains(#""calibration":null"#))
+
+        let calibration = CalibrationPayload(
+            phase: "discharge", startedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let presentPayload = makePayload(pauseReason: nil, calibration: calibration)
+        let presentLine = try ProtocolCodec.encodeLine(GetStateResponse.success(presentPayload))
+        #expect(presentLine.contains(#""calibration":{"#))
+        #expect(!presentLine.contains(#""calibration":null"#))
     }
 
     @Test func writeVerifiedDefaultsTrueWhenAbsentFromJSON() throws {
