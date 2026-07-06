@@ -4,8 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="Ampere"
-BUNDLE_ID="com.ampere.app"
+APP_NAME="PastaPerfection"   # user-facing name (bundle, Finder, menu bar app)
+BINARY_NAME="Ampere"         # SPM target name — internal, unchanged
+BUNDLE_ID="com.pastaperfection.app"
 DIST_DIR="dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -20,7 +21,7 @@ echo "==> Assembling $APP_DIR"
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$RELEASE_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
+cp "$RELEASE_DIR/$BINARY_NAME" "$MACOS_DIR/$APP_NAME"
 
 # Bundle the daemon and CLI binaries into Resources so the app (specifically
 # the daemon-unavailable install prompt) can reference a known-good path to
