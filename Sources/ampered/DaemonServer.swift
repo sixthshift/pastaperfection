@@ -9,12 +9,19 @@
 // exposes small, purpose-built methods (`getStatePayload()`, `setLimit(_:)`,
 // etc.) that this type calls.
 //
-// Thread-safety: `SocketServer`'s handler runs on its own internal dispatch
-// queue(s), potentially concurrently with the daemon's own timer/signal/
-// power-notification callbacks (all of which run on the main thread/queue —
-// see `Daemon.run()`). Every handler invocation is routed through
-// `DispatchQueue.main.sync` so all daemon state access is serialized on the
-// same thread, with no additional locking needed anywhere in `Daemon`.
+// Thread-safety (T023): `SocketServer`'s handler runs on its own internal
+// per-connection dispatch queues, potentially concurrently with the
+// daemon's own timer/signal/power-notification callbacks. Every handler
+// invocation is routed through `daemon.stateQueue.sync { ... }` — a plain
+// serial-queue sync, with NO run loop or main-queue involvement — so all
+// daemon state access is serialized on `stateQueue`, with no additional
+// locking needed anywhere in `Daemon`. This is a deliberate change from an
+// earlier main-queue-`sync` bridge: that version let a client which
+// disconnected without reading its response wedge the main queue permanently
+// (`CFRunLoopRun()` blocks that same thread/queue in `Daemon.run()`),
+// silently killing the 30 s timer and the SIGTERM/SIGINT restore-charging
+// path along with every other request. `stateQueue` is never blocked by the
+// run loop, so a stuck handler now blocks, at worst, this one `sync` call.
 //
 
 import AmpereCore
@@ -40,7 +47,7 @@ public final class DaemonServer {
     public init(daemon: Daemon, path: String = DaemonServer.defaultSocketPath) {
         self.path = path
         self.server = SocketServer(path: path, mode: DaemonServer.defaultMode) { line in
-            DispatchQueue.main.sync {
+            daemon.stateQueue.sync {
                 DaemonServer.handle(line, daemon: daemon)
             }
         }
@@ -84,7 +91,7 @@ public final class DaemonServer {
         server.stop()
     }
 
-    // MARK: - Request handling (runs on the daemon's main queue)
+    // MARK: - Request handling (runs on `daemon.stateQueue`, T023)
 
     static func handle(_ line: String, daemon: Daemon) -> String {
         let request: Request
