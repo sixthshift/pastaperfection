@@ -480,7 +480,7 @@
     {
       "id": "T026",
       "title": "Repair: accepted sockets inherit O_NONBLOCK (macOS/BSD) — large responses (get-stats) dropped mid-write",
-      "status": "todo",
+      "status": "done",
       "depends_on": [
         "T023"
       ],
@@ -492,7 +492,7 @@
       "context": "T023 set O_NONBLOCK on the LISTEN fd. On macOS (BSD semantics) accepted connections INHERIT non-blocking mode, and Connection.writeAll handles only EINTR — the first write() returning EAGAIN once the ~8KB socket buffer fills is treated as fatal -> closeConnection. T023 itself documented the intent to keep accepted fds blocking. Fix: in acceptPending(), immediately after accept() returns clientFD, explicitly CLEAR O_NONBLOCK on clientFD (fcntl F_GETFL, then F_SETFL flags & ~O_NONBLOCK) with a comment explaining BSD inheritance. Reads stay DispatchSourceRead-driven (fire only when data is ready, so blocking reads are safe); writes then block until drained, which per T023 blocks only that connection queue (acceptable, documented). Do NOT add EAGAIN retry loops to writeAll — restoring blocking semantics is the fix.",
       "acceptance": "- new Swift Testing regression test: handler returns a >200KB response line; client sends request and receives the ENTIRE line intact (assert length + last-char marker) — this fails before the fix, passes after\n- existing 121 tests green, unmodified (append-only on the test file)\n- grep: fcntl clearing O_NONBLOCK present in acceptPending with the BSD-inheritance comment\n- swift build + bash scripts/test.sh green",
       "attempts": [],
-      "evidence": null
+      "evidence": "re-verify 2026-07-06: scope exact (2 files); append-only test diff (0 deletions); 122/122; red/green check performed by builder (red reproduced the exact live \"connection closed by server\" at 250KB, green x2); fcntl clears inherited O_NONBLOCK at accept with BSD-inheritance comment; listen fd untouched. Merged; release rebuilt."
     }
   ]
 }

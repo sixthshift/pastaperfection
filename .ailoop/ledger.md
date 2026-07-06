@@ -432,3 +432,11 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
   evidence: req get-stats -> "connection closed by server", pid unchanged
        before/after; writeAll source (EINTR-only handling); fcntl O_NONBLOCK
        on listen fd at SocketServer.swift:152
+
+[0047] T026 — done (attempt 1, repair)
+  decision: continue
+  why: re-verify green; builder performed a true red/green check reproducing
+       the live failure before fixing; regression test is size-anchored
+       (250KB + trailing marker) so buffer-boundary regressions cannot hide.
+  attempt: 1/3
+  evidence: 122/122; append-only verified; fix at SocketServer.swift:222
