@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Darwin
 @testable import AmpereCore
 
 /// Loopback tests for `SocketServer`/`SocketClient` (SPEC §3, §3.1; oracle.md
@@ -10,7 +11,21 @@ import Foundation
 /// capped at ~104 bytes), so tests use `/tmp/ampere-test-<pid>-<n>.sock`
 /// rather than a long temp-directory path, and always clean up the socket
 /// file even on failure.
-@Suite struct SocketTests {
+/// T023: `.serialized` — every test in this suite binds a real unix-domain
+/// listen socket and drives real `accept()`/`close()` traffic through the
+/// process's shared small-integer fd table. Swift Testing parallelizes
+/// suites/tests by default; running two of these tests' independent
+/// `SocketServer`/`SocketClient` pairs concurrently lets one test's fd get
+/// closed (via an async `DispatchSource` cancel handler) and immediately
+/// reassigned by `accept()`/`socket()` in the OTHER, unrelated test at the
+/// exact moment the first test's own cleanup is still touching that fd
+/// number — not a bug in the daemon's single-instance production path (only
+/// one `SocketServer` ever runs there), but a real hazard for these tests'
+/// side-by-side instances. `.serialized` keeps this suite's tests
+/// sequential, which is what the ticket's regression tests actually need:
+/// reliable, deterministic pass/fail on THIS suite's own trigger, not
+/// incidental exposure to sibling tests' fd churn.
+@Suite(.serialized) struct SocketTests {
     /// Handler used by these tests: decodes each line as a `Protocol.swift`
     /// `Request` and replies with the codec's own responses, so the tests
     /// exercise `SocketServer`/`SocketClient` together with the real
@@ -197,6 +212,137 @@ import Foundation
         let client = SocketClient()
         #expect(throws: (any Error).self) {
             try client.connect(path: path)
+        }
+    }
+
+    // MARK: - T023 regression: the exact live daemon-wedging trigger
+    //
+    // These two tests pin down the live failure that motivated T023: a
+    // client that disconnects without reading its response must never take
+    // down the server (via `SIGPIPE` on the subsequent write to its
+    // already-closed peer) or block any other connection. Both tests operate
+    // purely at the `SocketServer`/`SocketClient` layer (this suite's
+    // target, `AmpereCoreTests`, has no visibility into `ampered`'s
+    // `Daemon`/`DaemonServer`, where the original main-queue deadlock lived)
+    // — they exercise the exact conditions (slow handler + a disconnecting
+    // client; concurrent clients) that `DaemonServer` layers its
+    // `stateQueue.sync` bridge on top of.
+
+    /// Connects a raw, short-lived unix-domain client: writes `line` (+
+    /// newline) then closes immediately WITHOUT reading any response. This
+    /// is deliberately built on raw Darwin socket calls (not `SocketClient`,
+    /// whose `request(_:timeout:)` always reads back a response) so the
+    /// "disconnect before reading" trigger can be reproduced exactly.
+    private static func connectSendAndCloseWithoutReading(path: String, line: String) {
+        let sock = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard sock >= 0 else { return }
+        defer { close(sock) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let utf8 = Array(path.utf8)
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        guard utf8.count < maxLen else { return }
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+            let base = raw.bindMemory(to: UInt8.self).baseAddress!
+            for i in 0..<utf8.count { base[i] = utf8[i] }
+            base[utf8.count] = 0
+        }
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                connect(sock, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connectResult == 0 else { return }
+
+        var data = Data(line.utf8)
+        data.append(0x0A)
+        _ = data.withUnsafeBytes { ptr -> Int in
+            write(sock, ptr.baseAddress, ptr.count)
+        }
+        // `defer` above closes `sock` here, WITHOUT ever reading a response —
+        // this is the exact live trigger: the server's handler is still
+        // running (or about to write back) against a peer that is already
+        // gone.
+    }
+
+    /// THE live-failure regression (T023): with a handler that sleeps ~100ms
+    /// before responding (standing in for the daemon's real, non-trivial
+    /// `evaluate()`/SMC work), client A connects, sends a request, and closes
+    /// without ever reading the response; client B then connects, sends its
+    /// own request, and must receive a correct response well within 2 s.
+    /// Before T023's `SO_NOSIGPIPE`/non-blocking-accept fixes, a write to
+    /// client A's already-closed socket could raise `SIGPIPE` (default
+    /// disposition: terminate the process) or otherwise wedge the server —
+    /// either way client B would never get its response.
+    @Test func clientThatDisconnectsWithoutReadingNeverBlocksASubsequentClient() throws {
+        let path = Self.makeSocketPath(8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let handler: (String) -> String = { _ in
+            Thread.sleep(forTimeInterval: 0.1)
+            return #"{"ok":true}"#
+        }
+        let server = SocketServer(path: path, mode: 0o660, handler: handler)
+        try server.start()
+        defer { server.stop() }
+
+        Self.connectSendAndCloseWithoutReading(path: path, line: #"{"cmd":"get-state"}"#)
+
+        let clientB = SocketClient()
+        try clientB.connect(path: path)
+        defer { clientB.close() }
+
+        let responseLine = try clientB.request(#"{"cmd":"get-state"}"#, timeout: 2)
+        #expect(responseLine.contains(#""ok":true"#))
+    }
+
+    /// Two concurrent clients (background queues), each sending its own
+    /// request over its own connection, must both receive their correct
+    /// response — the per-connection serial queues in `SocketServer` must
+    /// not interfere with each other.
+    @Test func twoConcurrentClientsBothReceiveCorrectResponses() throws {
+        let path = Self.makeSocketPath(9)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let server = SocketServer(path: path, mode: 0o660, handler: Self.makeHandler())
+        try server.start()
+        defer { server.stop() }
+
+        let resultsLock = NSLock()
+        var results: [Int: Result<String, Error>] = [:]
+        let group = DispatchGroup()
+
+        for value in [61, 62] {
+            group.enter()
+            DispatchQueue.global().async {
+                defer { group.leave() }
+                do {
+                    let client = SocketClient()
+                    try client.connect(path: path)
+                    defer { client.close() }
+                    let line = try ProtocolCodec.encodeLine(Request.setLimit(value: value))
+                    let response = try client.request(line, timeout: 5)
+                    resultsLock.lock()
+                    results[value] = .success(response)
+                    resultsLock.unlock()
+                } catch {
+                    resultsLock.lock()
+                    results[value] = .failure(error)
+                    resultsLock.unlock()
+                }
+            }
+        }
+
+        let waitOutcome = group.wait(timeout: .now() + 5)
+        #expect(waitOutcome == .success)
+
+        for value in [61, 62] {
+            let outcome = try #require(results[value])
+            let response = try outcome.get()
+            let decoded = try ProtocolCodec.decode(AckResponse.self, from: response)
+            #expect(decoded.ok == true)
         }
     }
 }

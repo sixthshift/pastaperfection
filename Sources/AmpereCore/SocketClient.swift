@@ -89,6 +89,16 @@ public final class SocketClient {
             }
         }
 
+        // T023: guard against SIGPIPE on writes to a peer that has already
+        // closed its end (e.g. a server that crashed or closed the
+        // connection mid-request) — belt and suspenders alongside the
+        // process-wide `SIG_IGN` daemon startup installs; callers of
+        // `SocketClient` outside the daemon (the CLI, the menu bar app)
+        // don't install that process-wide handler, so this per-fd option is
+        // what protects them.
+        var noSigPipe: Int32 = 1
+        _ = setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+
         self.fd = sock
         self.inbound.removeAll()
     }

@@ -65,6 +65,19 @@ public final class Daemon {
     /// `CalibrationScheduleState` above for why this isn't in `config.json`).
     public static let defaultCalibrationScheduleURL = URL(fileURLWithPath: "/Library/Application Support/Ampere/calibration-state.json")
 
+    /// T023: the single serial queue that owns ALL daemon state (`config`,
+    /// `state`, `lastReading`, etc.). The 30 s poll timer and the
+    /// SIGTERM/SIGINT signal sources are scheduled directly on this queue
+    /// (not `.main`), and `DaemonServer` bridges every socket request here
+    /// via `stateQueue.sync { ... }` — a plain serial-queue sync from the
+    /// `SocketServer` connection queues, with no run loop involvement and no
+    /// main queue anywhere in the request path. This is what makes a client
+    /// that never reads its response (or any other slow/stuck client) unable
+    /// to wedge anything but its own connection: the request path no longer
+    /// shares a queue with the run loop that `CFRunLoopRun()` blocks in
+    /// (see `run()`).
+    public let stateQueue = DispatchQueue(label: "com.ampere.daemon.state")
+
     private let reader: Reader
     private let adapter: SMCAdapter
     private let configURL: URL
@@ -153,14 +166,31 @@ public final class Daemon {
 
     /// Runs the daemon forever (until a signal exits the process). Installs
     /// signal handling and power notifications, evaluates once immediately,
-    /// starts the 30 s poll timer, then blocks the current thread on its run
-    /// loop (required for the IOKit run-loop-source notifications; the
-    /// timer/signal `DispatchSource`s on the main queue integrate with it
-    /// automatically).
+    /// starts the 30 s poll timer, then blocks the current (main) thread on
+    /// its run loop.
+    ///
+    /// T023: `CFRunLoopRun()` here exists ONLY to pump the IOKit run-loop
+    /// sources (`IOPSNotificationCreateRunLoopSource`,
+    /// `IORegisterForSystemPower`) — it is not, and must never again become,
+    /// the thing that serializes daemon state access. All state (`config`,
+    /// `state`, `lastReading`, ...) is owned by `stateQueue`; the 30 s timer
+    /// and SIGTERM/SIGINT signal sources are scheduled directly on
+    /// `stateQueue` (see `installTimer()`/`installSignalHandlers()`), and the
+    /// IOKit callbacks below hop to `stateQueue` via `.async` rather than
+    /// touching state inline on the run loop thread. This is what makes the
+    /// request path independent of the run loop entirely: a client that
+    /// wedges (e.g. disconnects without reading its response) can, at worst,
+    /// block its own connection's dedicated queue — never `stateQueue`,
+    /// never the run loop, never the timer or the SIGTERM restore path.
     public func run() {
+        // SIGPIPE must never kill or wedge the daemon — writes to a peer
+        // that already closed its end raise it by default; ignore it
+        // process-wide, early, before any socket I/O can happen.
+        signal(SIGPIPE, SIG_IGN)
+
         installSignalHandlers()
         installPowerNotifications()
-        evaluate()
+        stateQueue.sync { evaluate() }
         installTimer()
         installSocketServer()
         CFRunLoopRun()
@@ -196,7 +226,12 @@ public final class Daemon {
     // MARK: Timer (30 s poll, SPEC §3)
 
     private func installTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        // T023: targets `stateQueue`, not `.main` — the timer must keep
+        // ticking (telemetry heartbeat, calibration schedule) even if the
+        // main run loop thread is doing nothing but pumping IOKit sources,
+        // and it must never be blockable by anything on the socket request
+        // path (see `run()`).
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
         timer.schedule(deadline: .now() + 30, repeating: 30)
         timer.setEventHandler { [weak self] in
             self?.handleTimerTick()
@@ -272,13 +307,22 @@ public final class Daemon {
     // MARK: Power notifications (SPEC §3: power-source changes + sleep/wake)
 
     /// Power-source change notifications (`IOPSNotificationCreateRunLoopSource`)
-    /// — re-evaluate immediately on any change (adapter plug/unplug, etc.).
+    /// — re-evaluate on any change (adapter plug/unplug, etc.).
+    ///
+    /// T023: this callback fires on the main run loop thread (the thread
+    /// `CFRunLoopRun()` blocks in — see `run()`), which must never touch
+    /// daemon state inline. It hops to `stateQueue` via `.async` and returns
+    /// immediately, so a slow/stuck `evaluate()` (there isn't one today, but
+    /// this is the safety property we want) can never stall the run loop or
+    /// any other IOKit callback.
     private func installPowerNotifications() {
         let context = Unmanaged.passUnretained(self).toOpaque()
         guard let source = IOPSNotificationCreateRunLoopSource({ context in
             guard let context else { return }
             let daemon = Unmanaged<Daemon>.fromOpaque(context).takeUnretainedValue()
-            daemon.evaluate()
+            daemon.stateQueue.async {
+                daemon.evaluate()
+            }
         }, context) else {
             return
         }
@@ -323,17 +367,28 @@ public final class Daemon {
     private static let messageSystemWillSleep: UInt32 = 0xE0000280
     private static let messageSystemHasPoweredOn: UInt32 = 0xE0000300
 
+    /// T023: like `installPowerNotifications()`'s callback, this fires on
+    /// the main run loop thread. The `IOAllowPowerChange` acknowledgment
+    /// below is deliberately called INLINE, right here on the run loop
+    /// thread — sleep/wake acks are latency-sensitive (the system is
+    /// waiting on them to proceed with sleep) and involve no daemon state,
+    /// so there's nothing to gain and a deadline to risk by hopping queues
+    /// first. Only the state re-evaluation (`evaluate()`, on
+    /// `messageSystemHasPoweredOn`) hops to `stateQueue`.
     private func handlePowerMessage(messageType: UInt32, messageArgument: UnsafeMutableRawPointer?) {
         switch messageType {
         case Self.messageCanSystemSleep, Self.messageSystemWillSleep:
             // Acknowledge so the system isn't blocked from sleeping; we have
             // nothing to veto here (SPEC §1's safe-state invariant already
-            // holds regardless of sleep).
+            // holds regardless of sleep). Kept inline/synchronous — see the
+            // doc comment above.
             if powerConnect != 0 {
                 IOAllowPowerChange(powerConnect, Int(bitPattern: messageArgument))
             }
         case Self.messageSystemHasPoweredOn:
-            evaluate()
+            stateQueue.async { [weak self] in
+                self?.evaluate()
+            }
         default:
             break
         }
@@ -347,14 +402,19 @@ public final class Daemon {
         signal(SIGTERM, SIG_IGN)
         signal(SIGINT, SIG_IGN)
 
-        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        // T023: targets `stateQueue`, not `.main` — the restore-on-exit path
+        // (SPEC §1's "every failure path re-enables charging" safety rail)
+        // must fire even if the main run loop thread is wedged for any
+        // reason; routing it through the same queue as every other state
+        // access also means it can never race `evaluate()`.
+        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: stateQueue)
         term.setEventHandler { [weak self] in
             self?.restoreAndExit()
         }
         term.resume()
         sigTermSource = term
 
-        let intr = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        let intr = DispatchSource.makeSignalSource(signal: SIGINT, queue: stateQueue)
         intr.setEventHandler { [weak self] in
             self?.restoreAndExit()
         }
@@ -368,7 +428,8 @@ public final class Daemon {
     /// abort semantics) so this path's intent is unambiguous even though the
     /// process exits immediately after — the two direct adapter calls below
     /// already force the hardware to the safe state unconditionally, calibration
-    /// running or not.
+    /// running or not. Runs on `stateQueue` (the signal source above targets
+    /// it), so it's serialized against every other state access.
     private func restoreAndExit() -> Never {
         daemonServer?.stop()
         state = state.abortingCalibration()
@@ -379,11 +440,16 @@ public final class Daemon {
 
     // MARK: - Socket command handlers (SPEC §3.1), invoked by `DaemonServer`
     //
-    // `DaemonServer` routes every handler call through `DispatchQueue.main
-    // .sync`, and `evaluate()`/the timer/signal/power-notification callbacks
-    // above all already run on the main thread/queue (SPEC §3: the daemon's
-    // run loop lives there) — so these methods never race `evaluate()` or
-    // each other.
+    // T023: `DaemonServer` routes every handler call through
+    // `daemon.stateQueue.sync { ... }`, and `evaluate()`/the timer/signal
+    // callbacks above, plus the (queue-hopped) power-notification callbacks,
+    // all run on that same `stateQueue` — so these methods never race
+    // `evaluate()` or each other. Crucially, `stateQueue` is a plain serial
+    // `DispatchQueue`, not the main run loop: a slow or wedged client on the
+    // socket request path can only ever block that one `sync` call (and, by
+    // extension, this queue) for as long as its handler takes — it can no
+    // longer stall the run loop, the 30 s timer, or the SIGTERM/SIGINT
+    // restore path, because none of those live on `.main` anymore either.
 
     /// `get-state` (SPEC §3.1): assembled from the latest battery reading,
     /// `state`/`config`, and the adapter's write-verification canary.
