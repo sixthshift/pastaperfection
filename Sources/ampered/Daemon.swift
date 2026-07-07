@@ -312,7 +312,8 @@ public final class Daemon {
             temperatureC: reading.temperatureC,
             amperageMA: reading.amperageMA,
             voltageMV: reading.voltageMV,
-            chargingPaused: state.isChargingInhibited
+            chargingPaused: state.isChargingInhibited,
+            maxCapacityMAh: reading.appleRawMaxCapacity
         )
         telemetryLog.append(sample)
     }

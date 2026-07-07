@@ -179,6 +179,26 @@ import Foundation
         #expect(!timestamps.contains(staleHot.ts))
     }
 
+    /// SPEC §10.3 (T032): an archive bucket's `maxCapacityMAhAvg` maps to the
+    /// merged `StatsSample.maxCapacityMAh`, rounded to the nearest `Int`.
+    @Test func mergedStatsRoundsArchiveMaxCapacityAvgToNearestInt() {
+        var archive = archiveSample(ts: Date(timeIntervalSince1970: 0))
+        archive.maxCapacityMAhAvg = 7500.4
+        let merged = StatsFormatting.mergedStats(archive: [archive], hot: [], hoursBack: 0)
+        #expect(merged.count == 1)
+        #expect(merged[0].maxCapacityMAh == 7500)
+    }
+
+    /// A hot sample's `maxCapacityMAh` is preserved (not dropped) through
+    /// `mergedStats`'s hot-mapping path.
+    @Test func mergedStatsPreservesHotSampleMaxCapacity() {
+        var hot = hotSample(ts: Date(timeIntervalSince1970: 1_000_000))
+        hot.maxCapacityMAh = 7600
+        let merged = StatsFormatting.mergedStats(archive: [], hot: [hot], hoursBack: 0)
+        #expect(merged.count == 1)
+        #expect(merged[0].maxCapacityMAh == 7600)
+    }
+
     // MARK: - DashboardRange
 
     @Test func dashboardRangeHoursMapping() {

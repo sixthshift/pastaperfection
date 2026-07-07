@@ -416,6 +416,36 @@ import Foundation
         #expect(notPausedWire != pausedWire)
     }
 
+    /// SPEC §10.3 (T032): a `StatsSample` JSON payload without
+    /// `maxCapacityMAh` (old-daemon compat) must still decode, defaulting
+    /// the new field to `nil`.
+    @Test func statsSampleDecodesWithoutMaxCapacityKeyDefaultingNil() throws {
+        let json = """
+        {"timestamp":"2023-11-14T22:13:20Z","percent":60,"isCharging":true,"temperatureC":28.5,
+        "amperageMA":1200,"voltageMV":12500,"chargingPaused":false}
+        """
+        let decoded = try ProtocolCodec.decode(StatsSample.self, from: json)
+
+        #expect(decoded.maxCapacityMAh == nil)
+    }
+
+    /// A `StatsSample` with `maxCapacityMAh` set round-trips through
+    /// encode/decode unchanged.
+    @Test func statsSampleWithMaxCapacityRoundTrips() throws {
+        let sample = StatsSample(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            percent: 60, isCharging: true, temperatureC: 28.5,
+            amperageMA: 1200, voltageMV: 12500, chargingPaused: false,
+            maxCapacityMAh: 7500
+        )
+
+        let line = try ProtocolCodec.encodeLine(sample)
+        let decoded = try ProtocolCodec.decode(StatsSample.self, from: line)
+
+        #expect(decoded.maxCapacityMAh == 7500)
+        #expect(line.contains(#""maxCapacityMAh":7500"#))
+    }
+
     // MARK: - Response envelope shape
 
     @Test func successResponseOmitsErrorKey() throws {

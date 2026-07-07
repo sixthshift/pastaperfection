@@ -155,6 +155,89 @@ import Foundation
         #expect(bucket([]).isEmpty)
     }
 
+    // MARK: - maxCapacityMAh / maxCapacityMAhAvg (SPEC §10.3, T032)
+
+    /// Contrast (a): a bucket with some `maxCapacityMAh` nil and the
+    /// non-nil ones 7500/7600 averages only the non-nil values (7550), not
+    /// treating the nils as zero.
+    @Test func bucketMaxCapacityAveragesOnlyNonNilValues() {
+        let bucketStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let samples = [
+            TelemetrySample(
+                ts: bucketStart, percent: 70, isCharging: true, temperatureC: 30.0,
+                amperageMA: 100, voltageMV: 12_000, chargingPaused: false,
+                maxCapacityMAh: 7500
+            ),
+            TelemetrySample(
+                ts: bucketStart.addingTimeInterval(10), percent: 71, isCharging: true, temperatureC: 30.0,
+                amperageMA: 100, voltageMV: 12_000, chargingPaused: false,
+                maxCapacityMAh: nil
+            ),
+            TelemetrySample(
+                ts: bucketStart.addingTimeInterval(20), percent: 72, isCharging: true, temperatureC: 30.0,
+                amperageMA: 100, voltageMV: 12_000, chargingPaused: false,
+                maxCapacityMAh: 7600
+            )
+        ]
+
+        let buckets = bucket(samples)
+        #expect(buckets.count == 1)
+        #expect(buckets[0].maxCapacityMAhAvg == 7550)
+    }
+
+    /// Contrast (b): a bucket where every sample's `maxCapacityMAh` is nil
+    /// yields `maxCapacityMAhAvg == nil`, not `0`.
+    @Test func bucketAllNilMaxCapacityYieldsNilAverage() {
+        let bucketStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let samples = [
+            TelemetrySample(
+                ts: bucketStart, percent: 70, isCharging: true, temperatureC: 30.0,
+                amperageMA: 100, voltageMV: 12_000, chargingPaused: false, maxCapacityMAh: nil
+            ),
+            TelemetrySample(
+                ts: bucketStart.addingTimeInterval(10), percent: 71, isCharging: true, temperatureC: 30.0,
+                amperageMA: 100, voltageMV: 12_000, chargingPaused: false, maxCapacityMAh: nil
+            )
+        ]
+
+        let buckets = bucket(samples)
+        #expect(buckets.count == 1)
+        #expect(buckets[0].maxCapacityMAhAvg == nil)
+    }
+
+    /// Contrast (c-1): an old `TelemetrySample` JSON line recorded before
+    /// `maxCapacityMAh` existed (no such key) must still decode, defaulting
+    /// the new field to `nil` rather than throwing.
+    @Test func telemetrySampleDecodesWithoutMaxCapacityKey() throws {
+        let json = """
+        {"ts":"2023-11-14T22:13:20Z","percent":60,"isCharging":true,"temperatureC":28.5,\
+        "amperageMA":1200,"voltageMV":12500,"chargingPaused":false}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TelemetrySample.self, from: Data(json.utf8))
+
+        #expect(decoded.percent == 60)
+        #expect(decoded.maxCapacityMAh == nil)
+    }
+
+    /// Contrast (c-2): an old `ArchiveSample` JSON line recorded before
+    /// `maxCapacityMAhAvg` existed (no such key) must still decode,
+    /// defaulting the new field to `nil` rather than throwing.
+    @Test func archiveSampleDecodesWithoutMaxCapacityAvgKey() throws {
+        let json = """
+        {"ts":"2023-11-14T22:13:20Z","percentAvg":75.0,"percentMin":70,"percentMax":80,\
+        "temperatureCAvg":30.0,"amperageMAAvg":-400.0,"voltageMVAvg":12000.0,\
+        "chargingFraction":0.2,"pausedFraction":0.3,"count":15}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ArchiveSample.self, from: Data(json.utf8))
+
+        #expect(decoded.count == 15)
+        #expect(decoded.maxCapacityMAhAvg == nil)
+    }
+
     // MARK: - rotation hook (archive)
 
     @Test func rotationArchivesDroppedSamplesCoveringTheirTimeRange() throws {

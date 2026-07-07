@@ -371,6 +371,10 @@ public struct StatsSample: Codable, Equatable, Sendable {
     /// at sample time. Defaults to `false` when absent from JSON (old-daemon
     /// compat).
     public var chargingPaused: Bool
+    /// Battery maximum capacity, in mAh (SPEC §10.3), for charting health
+    /// over time. `nil` when absent from JSON (old-daemon compat, or a
+    /// bucket with no non-nil capacity samples); encoded only when present.
+    public var maxCapacityMAh: Int?
 
     public init(
         timestamp: Date,
@@ -379,7 +383,8 @@ public struct StatsSample: Codable, Equatable, Sendable {
         temperatureC: Double,
         amperageMA: Int = 0,
         voltageMV: Int = 0,
-        chargingPaused: Bool = false
+        chargingPaused: Bool = false,
+        maxCapacityMAh: Int? = nil
     ) {
         self.timestamp = timestamp
         self.percent = percent
@@ -388,10 +393,11 @@ public struct StatsSample: Codable, Equatable, Sendable {
         self.amperageMA = amperageMA
         self.voltageMV = voltageMV
         self.chargingPaused = chargingPaused
+        self.maxCapacityMAh = maxCapacityMAh
     }
 
     private enum CodingKeys: String, CodingKey {
-        case timestamp, percent, isCharging, temperatureC, amperageMA, voltageMV, chargingPaused
+        case timestamp, percent, isCharging, temperatureC, amperageMA, voltageMV, chargingPaused, maxCapacityMAh
     }
 
     public init(from decoder: Decoder) throws {
@@ -403,6 +409,7 @@ public struct StatsSample: Codable, Equatable, Sendable {
         amperageMA = try container.decodeIfPresent(Int.self, forKey: .amperageMA) ?? 0
         voltageMV = try container.decodeIfPresent(Int.self, forKey: .voltageMV) ?? 0
         chargingPaused = try container.decodeIfPresent(Bool.self, forKey: .chargingPaused) ?? false
+        maxCapacityMAh = try container.decodeIfPresent(Int.self, forKey: .maxCapacityMAh)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -414,6 +421,7 @@ public struct StatsSample: Codable, Equatable, Sendable {
         try container.encode(amperageMA, forKey: .amperageMA)
         try container.encode(voltageMV, forKey: .voltageMV)
         try container.encode(chargingPaused, forKey: .chargingPaused)
+        try container.encodeIfPresent(maxCapacityMAh, forKey: .maxCapacityMAh)
     }
 }
 
@@ -431,7 +439,8 @@ public extension StatsSample {
             temperatureC: sample.temperatureC,
             amperageMA: sample.amperageMA,
             voltageMV: sample.voltageMV,
-            chargingPaused: sample.chargingPaused
+            chargingPaused: sample.chargingPaused,
+            maxCapacityMAh: sample.maxCapacityMAh
         )
     }
 }

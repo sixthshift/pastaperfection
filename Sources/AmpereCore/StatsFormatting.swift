@@ -98,7 +98,8 @@ public enum StatsFormatting {
                 temperatureC: bucket.temperatureCAvg,
                 amperageMA: Int(bucket.amperageMAAvg.rounded()),
                 voltageMV: Int(bucket.voltageMVAvg.rounded()),
-                chargingPaused: bucket.pausedFraction >= 0.5
+                chargingPaused: bucket.pausedFraction >= 0.5,
+                maxCapacityMAh: bucket.maxCapacityMAhAvg.map { Int($0.rounded()) }
             )
         }
         let hotMapped = filteredHot.map(StatsSample.init)

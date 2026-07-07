@@ -24,6 +24,12 @@ public struct TelemetrySample: Codable, Equatable, Sendable {
     /// Whether the daemon was actively inhibiting charging (limit or heat)
     /// at the moment this sample was taken.
     public var chargingPaused: Bool
+    /// Battery maximum capacity, in mAh (`AppleRawMaxCapacity`), used to
+    /// chart health over time (SPEC §10.3). `nil` for samples recorded
+    /// before this field existed — old telemetry lines lack the key and
+    /// must still decode (Optional properties decode via `decodeIfPresent`
+    /// under synthesized `Codable`, so absence is never a decode error).
+    public var maxCapacityMAh: Int?
 
     public init(
         ts: Date,
@@ -32,7 +38,8 @@ public struct TelemetrySample: Codable, Equatable, Sendable {
         temperatureC: Double,
         amperageMA: Int,
         voltageMV: Int,
-        chargingPaused: Bool
+        chargingPaused: Bool,
+        maxCapacityMAh: Int? = nil
     ) {
         self.ts = ts
         self.percent = percent
@@ -41,6 +48,7 @@ public struct TelemetrySample: Codable, Equatable, Sendable {
         self.amperageMA = amperageMA
         self.voltageMV = voltageMV
         self.chargingPaused = chargingPaused
+        self.maxCapacityMAh = maxCapacityMAh
     }
 }
 
@@ -63,6 +71,11 @@ public struct ArchiveSample: Codable, Equatable, Sendable {
     public var pausedFraction: Double
     /// Number of raw samples folded into this bucket.
     public var count: Int
+    /// Arithmetic mean of the bucket's non-nil `maxCapacityMAh` values
+    /// (SPEC §10.3); `nil` when the bucket has zero non-nil values, or for
+    /// archive lines written before this field existed (old lines lack the
+    /// key and must still decode — see `TelemetrySample.maxCapacityMAh`).
+    public var maxCapacityMAhAvg: Double?
 
     public init(
         ts: Date,
@@ -74,7 +87,8 @@ public struct ArchiveSample: Codable, Equatable, Sendable {
         voltageMVAvg: Double,
         chargingFraction: Double,
         pausedFraction: Double,
-        count: Int
+        count: Int,
+        maxCapacityMAhAvg: Double? = nil
     ) {
         self.ts = ts
         self.percentAvg = percentAvg
@@ -86,6 +100,7 @@ public struct ArchiveSample: Codable, Equatable, Sendable {
         self.chargingFraction = chargingFraction
         self.pausedFraction = pausedFraction
         self.count = count
+        self.maxCapacityMAhAvg = maxCapacityMAhAvg
     }
 }
 
@@ -120,6 +135,11 @@ public func bucket(_ samples: [TelemetrySample]) -> [ArchiveSample] {
         let chargingCount = group.filter(\.isCharging).count
         let pausedCount = group.filter(\.chargingPaused).count
 
+        let nonNilCapacities = group.compactMap(\.maxCapacityMAh)
+        let maxCapacityMAhAvg: Double? = nonNilCapacities.isEmpty
+            ? nil
+            : Double(nonNilCapacities.reduce(0, +)) / Double(nonNilCapacities.count)
+
         return ArchiveSample(
             ts: bucketStart,
             percentAvg: percentSum / n,
@@ -130,7 +150,8 @@ public func bucket(_ samples: [TelemetrySample]) -> [ArchiveSample] {
             voltageMVAvg: voltageSum / n,
             chargingFraction: Double(chargingCount) / n,
             pausedFraction: Double(pausedCount) / n,
-            count: count
+            count: count,
+            maxCapacityMAhAvg: maxCapacityMAhAvg
         )
     }
 }
