@@ -577,3 +577,15 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        dispatch time next.
   baseline: swift build + scripts/test.sh green (176) at this commit; workers
        branch from here. Includes the 0058 AlDente restyle as §10.0 baseline.
+
+[0060] chunk boundary — Phase 6 first chunk (T031 + T033) landed
+  decision: end chunk (cap=2 reached); Phase 6 NOT closed
+  state: 32/34 done. T031 (adapter V/A specs) @996efc7, T033 (powerFlow +
+       topConsumers cores) @efe6c9f. Both independently re-verified (baseline
+       + acceptance + scope + gaming read), first attempt each. Merged tree:
+       swift build green, 196 tests / 15 suites green.
+  next chunk: T032 (capacity plumbing — ready), then T034 (dashboard UI —
+       gated on T032). T034 also carries the make-app.sh + docs/energy-
+       findings.md deliverables. After T034 merges: Phase 6 autonomous oracle
+       re-run on merged tree, then the [HW] gate (human + charger + daemon
+       reinstall) — shared with the still-pending Phase 5 [HW] gate.
