@@ -14,6 +14,11 @@ private let liveRefreshInterval: TimeInterval = 5.0
 private let chartsRefreshInterval: TimeInterval = 60.0
 /// Low-opacity accent fill for paused-region shading (SPEC §9.6).
 private let pausedShadingColor = Color.orange.opacity(0.15)
+/// Apps-using-energy sampler cadence (SPEC §10.5): ticks the app-side
+/// libproc shim; a third visible-gated timer alongside the two from §9.6.
+private let energyRefreshInterval: TimeInterval = 10.0
+/// Rows shown in the Apps Using Significant Energy card (SPEC §10.5).
+private let energyCardRowLimit = 5
 
 /// Dashboard palette (AlDente-style dark theme; the window forces
 /// `.darkAqua` so these read the same regardless of system appearance).
@@ -24,6 +29,7 @@ private enum Palette {
     static let temperature = Color(red: 0.35, green: 0.62, blue: 0.95)
     static let power = Color(red: 0.68, green: 0.48, blue: 0.95)
     static let limitLine = Color.orange
+    static let capacity = Color(red: 0.93, green: 0.72, blue: 0.32)
 }
 
 /// Presents `StatsView` in a plain `NSWindow` rather than a SwiftUI `Window`
@@ -94,6 +100,16 @@ struct StatsView: View {
     @State private var selectedRange: StatsFormatting.DashboardRange = .day
     @State private var liveTimer: Timer?
     @State private var chartsTimer: Timer?
+    /// Apps Using Significant Energy card state (SPEC §10.5): in-memory
+    /// only, never written to telemetry/archive/config/socket. Populated by
+    /// `EnergySampler.sample(limit:)` on `energyTimer`'s 10 s tick.
+    @State private var energyEntries: [EnergyEntry] = []
+    /// Count of `energyTimer` ticks so far, used only to distinguish "not
+    /// enough snapshots yet" (show "Sampling…") from "sampled, and there's
+    /// genuinely nothing significant" (an empty list is a legitimate
+    /// `topConsumers` result once at least two snapshots exist).
+    @State private var energySampleTicks: Int = 0
+    @State private var energyTimer: Timer?
 
     init(model: DaemonClientModel, window: NSWindow?) {
         self.model = model
@@ -142,6 +158,20 @@ struct StatsView: View {
 
     private var chargerText: String {
         StatsFormatting.chargerText(currentPayload?.adapter)
+    }
+
+    /// Adapter's rated/negotiated voltage (SPEC §10.2) — a spec, not a live
+    /// measurement; labeled "Voltage" on the rated Power Adapter card.
+    private var adapterVoltageText: String {
+        guard let voltageMV = currentPayload?.adapter?.voltageMV else { return "--" }
+        return StatsFormatting.voltageText(voltageMV: voltageMV)
+    }
+
+    /// Adapter's rated/negotiated max current (SPEC §10.2) — a spec, not a
+    /// live measurement.
+    private var adapterMaxCurrentText: String {
+        guard let currentMA = currentPayload?.adapter?.currentMA else { return "--" }
+        return String(format: "%.2f A", Double(currentMA) / 1000)
     }
 
     private var chargeStatusText: String {
@@ -196,10 +226,52 @@ struct StatsView: View {
         return Array(nonIdle.reversed().prefix(20))
     }
 
+    /// Power Flow widget reading (SPEC §10.4): derived from the live
+    /// `get-state` payload's connection/pause flags plus the newest already-
+    /// fetched `get-stats` sample's amperage/voltage. Adds zero new
+    /// requests — `nil` until both a `get-state` payload and at least one
+    /// sample exist.
+    private var powerFlow: PowerFlow? {
+        guard let payload = currentPayload, let latest = samples.last else { return nil }
+        return PowerFlowCore.compute(
+            externalConnected: payload.externalConnected,
+            isCharging: payload.isCharging,
+            chargingPaused: payload.chargingPaused,
+            amperageMA: latest.amperageMA,
+            voltageMV: latest.voltageMV
+        )
+    }
+
+    /// A single plottable point on the Maximum Capacity chart (SPEC §10.3).
+    private struct CapacityPoint: Equatable {
+        let timestamp: Date
+        let percent: Double
+    }
+
+    /// Maximum Capacity chart points (SPEC §10.3): `maxCapacityMAh /
+    /// designCapacity * 100` over the selected-range `chartSamples`, samples
+    /// with no capacity reading skipped (never zeroed) via `compactMap`.
+    /// Empty when there's no `designCapacity` to divide by.
+    private var capacityChartPoints: [CapacityPoint] {
+        guard let designCapacity = currentPayload?.health.designCapacity, designCapacity > 0 else {
+            return []
+        }
+        return chartSamples.compactMap { sample in
+            guard let maxCapacityMAh = sample.maxCapacityMAh else { return nil }
+            let percent = Double(maxCapacityMAh) / Double(designCapacity) * 100
+            return CapacityPoint(timestamp: sample.timestamp, percent: percent)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 specCardsRow
+
+                HStack(alignment: .top, spacing: 16) {
+                    powerFlowCard
+                    energyCard
+                }
 
                 HStack {
                     Picker("Range", selection: $selectedRange) {
@@ -237,6 +309,9 @@ struct StatsView: View {
                     }
                     HStack(alignment: .top, spacing: 16) {
                         powerCard
+                        capacityCard
+                    }
+                    HStack(alignment: .top, spacing: 16) {
                         sessionsCard
                     }
                 }
@@ -285,6 +360,8 @@ struct StatsView: View {
                     "Power:",
                     currentPayload?.adapter.map { "\($0.watts) W" } ?? "--"
                 )
+                specRow("Voltage:", adapterVoltageText)
+                specRow("Max Current:", adapterMaxCurrentText)
                 specRow(
                     "Adapter State:",
                     currentPayload.map { $0.adapterDisabled ? "Disabled" : "Enabled" } ?? "--"
@@ -380,6 +457,120 @@ struct StatsView: View {
                 }
             }
         }
+    }
+
+    /// Maximum Capacity chart (SPEC §10.3): fourth chart card, fixed 50…100
+    /// y-domain, headline is the same health % the Battery Health spec card
+    /// shows. No paused shading. A placeholder replaces the chart entirely
+    /// when there isn't at least one plottable point yet.
+    private var capacityCard: some View {
+        card {
+            chartHeader(title: "Maximum Capacity", value: healthPercentText)
+            chartWell {
+                if capacityChartPoints.isEmpty {
+                    Text("Not enough history yet")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else {
+                    Chart(capacityChartPoints, id: \.timestamp) { point in
+                        AreaMark(
+                            x: .value("Time", point.timestamp),
+                            y: .value("Capacity %", point.percent)
+                        )
+                        .foregroundStyle(chartGradient(Palette.capacity))
+                        LineMark(
+                            x: .value("Time", point.timestamp),
+                            y: .value("Capacity %", point.percent)
+                        )
+                        .foregroundStyle(Palette.capacity)
+                    }
+                    .chartYScale(domain: 50...100)
+                }
+            }
+        }
+    }
+
+    /// Power Flow widget (SPEC §10.4): adapter glyph — watts pill — laptop
+    /// glyph, with the side matching `powerFlow.direction` emphasized. Zero
+    /// new requests — reads `currentPayload` + `samples.last`, both already
+    /// fetched by the existing 5 s/60 s ticks. Hidden (placeholder text)
+    /// until both exist.
+    private var powerFlowCard: some View {
+        card {
+            cardHeader(icon: "bolt.horizontal.fill", title: "Power Flow")
+            if let flow = powerFlow {
+                HStack(spacing: 16) {
+                    Image(systemName: "powerplug.fill")
+                        .font(.title2)
+                        .foregroundStyle(flow.direction == .battery ? AnyShapeStyle(.secondary) : AnyShapeStyle(Palette.level))
+                    Spacer(minLength: 0)
+                    VStack(spacing: 2) {
+                        Text(String(format: "%.1f W", flow.watts))
+                            .font(.title3)
+                            .bold()
+                            .monospacedDigit()
+                        Text("Battery flow")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "laptopcomputer")
+                        .font(.title2)
+                        .foregroundStyle(flow.direction == .battery ? AnyShapeStyle(Palette.level) : AnyShapeStyle(.secondary))
+                }
+                .padding(.vertical, 10)
+            } else {
+                Text("No data yet")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Apps Using Significant Energy card (SPEC §10.5): top ≤ 5 rows from
+    /// `energyEntries`, refreshed by `energyTimer`. Icon/name resolve
+    /// against `NSRunningApplication` when the pid is a running app (a
+    /// generic gear glyph / the sampler's raw `proc_name` otherwise).
+    private var energyCard: some View {
+        card {
+            cardHeader(icon: "cpu", title: "Apps Using Significant Energy")
+            if energySampleTicks < 2 {
+                Text("Sampling\u{2026}")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            } else if energyEntries.isEmpty {
+                Text("No significant activity")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(energyEntries, id: \.pid) { entry in
+                        HStack(spacing: 8) {
+                            energyIcon(for: entry)
+                                .resizable()
+                                .frame(width: 16, height: 16)
+                            Text(energyDisplayName(for: entry))
+                                .font(.callout)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func energyIcon(for entry: EnergyEntry) -> Image {
+        if let icon = NSRunningApplication(processIdentifier: entry.pid)?.icon {
+            return Image(nsImage: icon)
+        }
+        return Image(systemName: "gearshape.fill")
+    }
+
+    private func energyDisplayName(for entry: EnergyEntry) -> String {
+        NSRunningApplication(processIdentifier: entry.pid)?.localizedName ?? entry.name
     }
 
     private var sessionsCard: some View {
@@ -511,6 +702,17 @@ struct StatsView: View {
             }
             RunLoop.main.add(timer, forMode: .common)
             chartsTimer = timer
+        }
+        if energyTimer == nil {
+            let timer = Timer(timeInterval: energyRefreshInterval, repeats: true) { _ in
+                Task { @MainActor in
+                    guard window?.isVisible == true else { return }
+                    energyEntries = EnergySampler.sample(limit: energyCardRowLimit)
+                    energySampleTicks += 1
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            energyTimer = timer
         }
     }
 }
