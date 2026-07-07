@@ -1,4 +1,4 @@
-# Ampere — locked build spec (v1 + v2 dashboard addendum §9)
+# Ampere — locked build spec (v1 + v2 dashboard addendum §9 + v3 addendum §10)
 
 A free, self-built replacement for AlDente (free + Pro features) targeting exactly one
 machine: **MacBook Pro 18,3 (M1 Pro), macOS 26.3 (Tahoe firmware), Apple Silicon.**
@@ -405,7 +405,219 @@ app against an old daemon and vice versa must not crash)
 ### §9.9 v2 out of scope (additional tripwires)
 
 - CSV/JSON export, printing, iCloud/anything sync
-- Per-app energy attribution, process lists
+- Per-app energy attribution, process lists *(narrowed by §10 — see §10.9;
+  the §10.5 in-memory dashboard list is allowed, everything else still trips)*
 - Editing/deleting history from the UI
-- Charts beyond the three listed; annotations/zoom/pan gestures
+- Charts beyond the three listed *(amended by §10.3 — exactly four)*;
+  annotations/zoom/pan gestures
 - Menu-bar-icon sparkline or extra menu bar items
+
+---
+
+## §10 v3 dashboard (Phase 6 — locked addendum, 2026-07-07, user-approved)
+
+Goal: finish closing the gap to AlDente's dashboard panel. Everything in v1/v2
+stays locked; this section only *adds*, plus the two §9.9 narrowings noted
+there. All §6 tripwires remain in force (no network, no analytics). This phase
+writes **zero** SMC keys; the only new data sources are (a) more fields from
+the same `AppleSmartBattery` registry dict already read, and (b) app-side
+process sampling via `libproc` (§10.5).
+
+### §10.0 Ratified layout baseline (supersedes §9.6 sizing/arrangement)
+
+The 2026-07-07 AlDente-style restyle of `StatsView` is ratified as the layout
+baseline: card grid on a forced-`darkAqua` 920×720 window (min 760×560) —
+three spec cards (Battery Specs / Battery Health / Power Adapter), range
+picker, chart cards with headline values, sessions card. Every §9.6 *behavior*
+remains binding unchanged: the four ranges, ≤400-point client downsample,
+paused shading, the two visible-gated timers (5 s live / 60 s charts), manual
+Refresh. Only §9.6's window size and vertical-list arrangement are superseded.
+
+### §10.1 Feature list
+
+1. **Adapter electrical specs** (§10.2) — negotiated adapter voltage and max
+   current, displayed in the Power Adapter card.
+2. **Maximum-capacity history chart** (§10.3) — fourth chart: battery health
+   over time, from new telemetry/archive/wire fields.
+3. **Power Flow widget** (§10.4) — adapter → machine → battery direction
+   badge with live watts, in the dashboard.
+4. **Apps Using Significant Energy** (§10.5) — top-5 energy consumers,
+   in-memory only, sampled by the app while the dashboard is visible.
+
+### §10.2 Adapter electrical specs (amend §9.4 parser + §9.3 payload — reads
+only, additive only)
+
+- Parser: `AdapterDetails` sub-dict additionally yields `AdapterVoltage`
+  (Int, **mV**, negotiated) and `Current` (Int, **mA**, negotiated max).
+  Same totality rules as §9.4: absent/mistyped field → that field `nil`,
+  never a crash, parser stays pure over an injected `[String: Any]`.
+- `AdapterPayload` gains `voltageMV: Int?` and `currentMA: Int?` — encoded
+  when present, decoded default `nil` (hand-rolled `init(from:)`, same
+  pattern as §9.3). Old app ↔ new daemon and vice versa must not crash.
+- These are **negotiated/rated** values, not instantaneous draw. The UI must
+  label them as specs (e.g. `Voltage: 19.5 V`, `Max Current: 3.25 A`) and
+  must NOT present them as live measurements. No instantaneous adapter
+  telemetry exists without new SMC reads — that is out of scope (§10.9).
+- Power Adapter card rows become: Adapter (name), Rated Power (W),
+  Voltage (V, 2 dp, from `voltageMV`), Max Current (A, 2 dp, from
+  `currentMA`), Adapter State, Mode. Rows with `nil` data show `--`.
+
+### §10.3 Maximum-capacity history (fourth chart)
+
+- `TelemetrySample` gains `maxCapacityMAh: Int?` — daemon fills it from the
+  same battery read that feeds `health.maxCapacity`; encoded always going
+  forward, decoded default `nil` (old telemetry lines must keep parsing).
+- `ArchiveSample` gains `maxCapacityMAhAvg: Double?` — mean of the bucket's
+  **non-nil** values; `nil` when the bucket has none. Decoded default `nil`
+  (existing archive lines must keep parsing). Bucketing stays a pure function.
+- Wire `StatsSample` gains `maxCapacityMAh: Int?`, default-decode `nil`;
+  daemon copies from telemetry (hot) or `round(maxCapacityMAhAvg)` (archive
+  merge path).
+- Chart card "Maximum Capacity": plots `maxCapacityMAh / designCapacity ×
+  100` (%) — `designCapacity` from the live `get-state` payload; samples with
+  `nil` capacity are **skipped, not zeroed**. Y-domain: fixed 50…100 (health
+  below 50% is a dead battery; a fixed domain keeps week-to-week charts
+  comparable). Headline value: current health % (same figure as the Battery
+  Health card). No paused shading on this chart.
+- §9.9's "charts beyond the three" tripwire is amended to **exactly four**.
+- Expectation note for the oracle: history is sparse until new samples
+  accumulate; the chart rendering with ≥1 point is sufficient at the HW gate.
+
+### §10.4 Power Flow widget (presentation + one pure function; no new data)
+
+- Placement: a card in the dashboard grid (adapter glyph — watts pill —
+  laptop glyph, AlDente-style).
+- All logic is one pure, unit-tested function in `AmpereCore`:
+  `powerFlow(externalConnected: Bool, isCharging: Bool, chargingPaused: Bool,
+  amperageMA: Int, voltageMV: Int) -> PowerFlow` where
+  `PowerFlow { direction, watts: Double }` and `direction` is one of:
+  - `.adapterCharging` — `externalConnected && amperageMA > 0`
+    (adapter → machine + battery); watts = battery inflow
+    `|amperageMA × voltageMV| / 1e6`.
+  - `.adapterHolding` — `externalConnected && amperageMA <= 0 &&
+    chargingPaused` (adapter → machine, battery held); watts = battery flow
+    magnitude (≈ 0 when truly holding).
+  - `.adapterOnly` — `externalConnected`, otherwise (adapter → machine,
+    battery idle/topped); watts = battery flow magnitude.
+  - `.battery` — `!externalConnected` (battery → machine); watts =
+    `|amperageMA × voltageMV| / 1e6` (discharge draw).
+- The widget displays `direction` (which glyph is highlighted / arrow points
+  which way) + watts (1 dp). It must be honest about what the number is:
+  **battery-side flow**, not total system draw — caption the pill "Battery
+  flow". Total system power is not measurable without new SMC reads (out of
+  scope, §10.9).
+- Inputs come from the live `get-state` payload + newest `get-stats` sample
+  already fetched; the widget adds **zero** new requests and refreshes on the
+  existing 5 s live tick.
+
+### §10.5 Apps Using Significant Energy (app-side sampler, in-memory only)
+
+- **Where it runs:** the `Ampere` app process (NOT the daemon — no root
+  needed, and the daemon stays minimal). A third visible-gated timer, 10 s
+  period, same `window?.isVisible` no-op rule as §9.6's timers.
+- **Mechanism (locked):** snapshot = enumerate `proc_listallpids()`, for each
+  pid read `proc_pid_rusage(pid, RUSAGE_INFO_V4, ...)` and `proc_name`.
+  Metric per process = delta between consecutive snapshots of
+  `ri_billed_energy` (nanojoules; populated on Apple Silicon). **Fallback:**
+  if `ri_billed_energy` deltas are all zero on this machine, use
+  `ri_user_time + ri_system_time` delta instead; record which path the
+  hardware takes in `docs/energy-findings.md` (create it, sibling of
+  `docs/smc-findings.md`). Do NOT shell out to `top`/`ps`; do not use private
+  frameworks.
+- **Pure ranking core (in `AmpereCore`, fully unit-tested, no libproc):**
+  `topConsumers(previous: [ProcessSnapshot], current: [ProcessSnapshot],
+  limit: Int) -> [EnergyEntry]` where `ProcessSnapshot { pid, name, metric:
+  UInt64 }`. Rules: pids present only in one snapshot are dropped (process
+  churn); metric delta computed with clamping (a counter reset / pid reuse
+  yielding `current < previous` → drop the pid, never underflow); sort by
+  delta descending, tie-break by name ascending (stable output for tests);
+  return the top `limit`; entries with delta 0 are dropped (an empty list is
+  valid). The libproc snapshot code is a thin, untested-by-unit-tests shim in
+  the app target.
+- **UI:** "Apps Using Significant Energy" card listing ≤ 5 rows: app icon
+  (via `NSRunningApplication(processIdentifier:)` when the pid is a running
+  app — generic gear icon otherwise) + display name. Show localized name from
+  `NSRunningApplication` when available, else `proc_name`. Before the second
+  snapshot exists, show "Sampling…".
+- **Privacy/persistence (locked):** the list lives in view `@State` only.
+  It is never written to telemetry, the archive, config, or any file except
+  the one-time `docs/energy-findings.md` note (which records the *mechanism*,
+  never process names). It never crosses the socket — the daemon knows
+  nothing about processes.
+
+### §10.6 Dashboard layout deltas
+
+- Power Adapter card: rows per §10.2.
+- Right-column additions (or grid slots on narrow widths — exact arrangement
+  is the builder's choice, everything else here is locked): Power Flow card
+  (§10.4) and Apps Using Significant Energy card (§10.5).
+- Fourth chart card "Maximum Capacity" (§10.3) joins the chart grid; the
+  Sessions card stays.
+- No new windows, tabs, or menu bar changes. The window remains the single
+  `StatsWindowPresenter` window.
+
+### §10.7 Phase 6 oracle
+
+- **Baseline gate (every ticket):** `swift build` + `bash scripts/test.sh`
+  green; new behavior ships with new Swift Testing tests.
+- **Required unit tests (contrast-style, not existence-style):**
+  1. Adapter parser: `AdapterVoltage`/`Current` present → values; absent →
+     `nil` fields (watts/name unaffected); mistyped (e.g. String) → that
+     field `nil`, no crash.
+  2. `AdapterPayload` wire compat: JSON without the new fields decodes
+     `nil`/`nil`; round-trips when present.
+  3. `TelemetrySample`/`StatsSample`/`ArchiveSample` capacity fields: old
+     JSON (field absent) decodes `nil`; round-trip when present; bucketing
+     averages only non-nil capacities and yields `nil` for a bucket with
+     none (contrast: one bucket with values vs one without).
+  4. Merge path: archive bucket with `maxCapacityMAhAvg` 7500.4 → merged
+     `StatsSample.maxCapacityMAh == 7500`.
+  5. `powerFlow`: four contrasting input sets → four different directions,
+     with exact watts asserted for a charging case and a discharging case;
+     paused-plugged vs unplugged must differ.
+  6. `topConsumers`: ranking order, tie-break, top-`limit` cap, pid present
+     in only one snapshot dropped, `current < previous` dropped (no
+     underflow), zero-delta dropped, empty-input → empty.
+  7. Capacity-chart helper (nil-skip → plotted point count) if any such
+     helper is added; plotting raw in the view with an inline `compactMap`
+     is also acceptable.
+- **Hardware gate (human, charger attached, after daemon upgrade via
+  `sudo ampere-cli uninstall && sudo ampere-cli install`):**
+  1. Power Adapter card voltage/max-current match `ioreg -rn
+     AppleSmartBattery` → `AdapterDetails` for the physical charger.
+  2. Power Flow: plugged+charging → adapter-side direction with positive
+     watts; unplug → battery direction ≤ 10 s; watts plausible vs Activity
+     Monitor's energy tab ballpark.
+  3. Maximum Capacity chart renders with ≥ 1 point after the daemon has
+     logged ≥ 1 new sample; headline % equals Battery Health card's %.
+  4. Energy card: top entries plausible vs Activity Monitor's Energy pane
+     ordering (exact order need not match); list updates within ~20 s of
+     starting a CPU-heavy task; `docs/energy-findings.md` records whether
+     `ri_billed_energy` or the CPU-time fallback is in use.
+  5. Full §9.7 HW items 1–5 re-checked briefly (regression pass, since the
+     protocol and dashboard both changed).
+
+### §10.8 Suggested ticket decomposition (non-binding; intake may re-cut)
+
+1. T-V3-A: adapter parser V/A fields + `AdapterPayload` deltas + daemon fill
+   (tests 1–2).
+2. T-V3-B: capacity plumbing — telemetry/archive/wire fields, bucketing,
+   merge mapping (tests 3–4).
+3. T-V3-C: `powerFlow` + `topConsumers` pure cores in `AmpereCore`
+   (tests 5–6).
+4. T-V3-D: dashboard UI — adapter card rows, Power Flow card, fourth chart,
+   energy card + libproc shim + third timer + `docs/energy-findings.md`.
+
+Dependency spine: A, B, C are mutually independent; D depends on all three.
+
+### §10.9 v3 out of scope (additional tripwires)
+
+- Any new SMC key access, read **or** write (no `PDTR`/`PSTR`/system-power
+  telemetry; the §4 write allowlist is untouched)
+- Instantaneous adapter draw shown as if measured; total-system-watts claims
+- Per-app energy **history** (charts, persistence, telemetry) — display is
+  live-only, in-memory, top-5
+- Killing/pausing processes from the energy card; any process management
+- Sampling when the dashboard window is not visible; any daemon involvement
+  in process data
+- Battery calibration UI changes, menu bar changes, new windows/tabs

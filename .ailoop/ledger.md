@@ -540,3 +540,40 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        hidden at limit; four ranges render; paused shading over a held
        period; power sign flips across plug/unplug; session list consistent
        with the day. Archive rotation stays test-gated (live rotation ≈14 d).
+
+[0057] mechanical oracle amendment — bundle name (2026-07-07)
+  decision: amend Phase 2 check `dist/Ampere.app` → `dist/PastaPerfection.app`
+  why: user renamed the user-facing app in another session (commit b1955c0,
+       2026-07-06, "rename user-facing app to PastaPerfection"; only
+       scripts/make-app.sh touched — SPM targets/binaries still Ampere).
+       Letter-not-meaning fix: the check verifies the bundle assembles,
+       lints, and signs; the name is user-owned. Verified post-amendment:
+       make-app.sh green, plutil OK, codesign OK.
+
+[0058] post-loop UI restyle — AlDente-style dashboard (2026-07-07)
+  decision: direct edit (backlog drained; user-directed design pass)
+  scope: Sources/Ampere/StatsView.swift only (view layer; zero core/protocol
+       changes, zero SMC surface). Card grid: 3 spec cards (Battery Specs /
+       Battery Health / Power Adapter), range picker, Battery Level card
+       (green area + dashed orange limit RuleMark + paused shading + time-to-
+       limit), Temperature (blue), Power (purple, paused shading), Sessions
+       card. Window 920x720, forced darkAqua. All §9.6 mandated elements
+       retained (4 ranges, paused shading, live timers w/ isVisible gate).
+  evidence: swift build green; scripts/test.sh 176/176 green; make-app.sh +
+       plutil + codesign green. [HW] gate from 0056 still pending, unchanged.
+
+[0059] Phase 6 (SPEC §10) intake — user approved "run the ailoop" (2026-07-07)
+  action: ratified §10 (removed awaiting-approval gate), added Phase 6 oracle
+       to oracle.md, seeded T031–T034 in backlog.json.
+  tickets: T031 adapter V/A specs (parser+payload); T032 capacity plumbing
+       (telemetry/archive/wire + bucketing/merge); T033 pure cores (powerFlow
+       + topConsumers); T034 dashboard UI (deps T031/T032/T033).
+  scheduler: ready {T031,T032,T033}; batches [[T031,T033],[T032]]; T034 gated.
+       chunk=2 → this invocation builds T031 + T033.
+  red-team: T031 — absent + mistyped-String contrast cases + wire round-trip
+       defeat hardcoding; PASS. T033 — topConsumers targets UInt64 underflow
+       (current<previous drop) directly, four-distinct-directions + exact watts
+       on two cases defeats special-casing; PASS. T032/T034 red-teamed at
+       dispatch time next.
+  baseline: swift build + scripts/test.sh green (176) at this commit; workers
+       branch from here. Includes the 0058 AlDente restyle as §10.0 baseline.

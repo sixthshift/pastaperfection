@@ -79,7 +79,9 @@ merged tree.
       socket, charging normal
 
 ### Phase 2 — Menu bar app
-- [ ] `scripts/make-app.sh` → `dist/Ampere.app` exists, `plutil -lint` passes,
+- [ ] `scripts/make-app.sh` → `dist/PastaPerfection.app` exists (user-facing name
+      renamed from Ampere, commit b1955c0, 2026-07-06 — see ledger; SPM targets
+      unchanged), `plutil -lint` passes,
       Info.plist has `LSUIElement=true`, binary present, `codesign -v` (ad-hoc) passes
 - [ ] **[HW]** socket round-trip: set limit 65 via cli → app UI reflects 65; app
       launches showing menu bar item
@@ -143,6 +145,57 @@ Autonomous checks (merged tree):
       chart sign flips across plug/unplug
 - [ ] session list consistent with the day's telemetry
 - [ ] archive rotation is **test-gated only** (live rotation ≈ 14 days out)
+
+### Phase 6 — v3 dashboard (SPEC §10, added 2026-07-07)
+
+Locked additions (§10.2–§10.5 binding on workers): adapter V/A specs
+(`AdapterVoltage` mV + `Current` mA parsed from the same `AdapterDetails`
+dict, reads only; `AdapterPayload.voltageMV/currentMA` additive default-`nil`;
+labelled as **negotiated specs**, never live); capacity history
+(`TelemetrySample.maxCapacityMAh: Int?`, `ArchiveSample.maxCapacityMAhAvg:
+Double?` = mean of non-nil only, `StatsSample.maxCapacityMAh: Int?`, all
+additive default-`nil`; 4th chart plots `maxCapacityMAh/designCapacity×100`,
+nil samples skipped, y-domain 50…100); Power Flow (**one pure `powerFlow(...)`
+in AmpereCore**, four directions, captioned "Battery flow" — **not** system
+watts); per-app energy (**app-side only**, libproc `proc_pid_rusage`
+`ri_billed_energy` with CPU-time fallback recorded in `docs/energy-findings.md`;
+pure `topConsumers(...)` ranking core in AmpereCore; top-5, **in-memory only,
+never persisted, never crosses the socket**). §10.0 ratifies the 2026-07-07
+AlDente-style restyle as the layout baseline; every §9.6 behavior stays binding.
+**Phase 6 writes zero SMC keys, reads zero new SMC keys** (§10.9).
+
+Autonomous checks (merged tree):
+- [ ] adapter parser: `AdapterVoltage`/`Current` present → values; absent →
+      those fields nil (watts/name unaffected); mistyped → that field nil, no crash
+- [ ] `AdapterPayload` wire compat: JSON without new fields decodes nil/nil;
+      round-trips when present
+- [ ] capacity fields: old JSON (field absent) decodes nil for
+      `TelemetrySample`/`StatsSample`/`ArchiveSample`; round-trip when present;
+      bucketing averages **non-nil only** and yields nil for an all-nil bucket
+      (contrast: bucket with values vs bucket without)
+- [ ] merge path: archive bucket `maxCapacityMAhAvg` 7500.4 → merged
+      `StatsSample.maxCapacityMAh == 7500`
+- [ ] `powerFlow`: four contrasting inputs → four **different** directions;
+      exact watts asserted for a charging case and a discharging case;
+      paused-plugged vs unplugged differ
+- [ ] `topConsumers`: ranking order + name tie-break; top-`limit` cap; pid in
+      only one snapshot dropped; `current < previous` dropped (no underflow);
+      zero-delta dropped; empty input → empty
+- [ ] `swift build` + `bash scripts/test.sh` green; `scripts/make-app.sh` still
+      produces a lint-clean, ad-hoc-signed bundle
+
+**[HW]** gate (chunk checkpoint, human + charger, after daemon reinstall via
+`sudo ampere-cli uninstall && sudo ampere-cli install`):
+- [ ] Power Adapter card V/max-current match `ioreg -rn AppleSmartBattery`
+      `AdapterDetails` for the physical charger
+- [ ] Power Flow: plugged+charging → adapter-side direction, positive watts;
+      unplug → battery direction ≤ 10 s; watts plausible vs Activity Monitor
+- [ ] Maximum Capacity chart renders ≥ 1 point after daemon logs ≥ 1 new sample;
+      headline % equals Battery Health card's %
+- [ ] Energy card: top entries plausible vs Activity Monitor Energy pane
+      ordering; updates ≤ ~20 s of a CPU-heavy task; `docs/energy-findings.md`
+      records `ri_billed_energy` vs CPU-time fallback
+- [ ] regression: §9.7 HW items 1–5 re-checked (protocol + dashboard both changed)
 
 ## Caps
 
