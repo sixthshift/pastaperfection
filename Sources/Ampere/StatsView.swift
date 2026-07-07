@@ -19,6 +19,12 @@ private let pausedShadingColor = Color.orange.opacity(0.15)
 private let energyRefreshInterval: TimeInterval = 10.0
 /// Rows shown in the Apps Using Significant Energy card (SPEC §10.5).
 private let energyCardRowLimit = 5
+/// Y-axis floor for the Maximum Capacity chart (SPEC §10.3): health below
+/// 50% is a dead battery, so a fixed 50…100 domain keeps week-to-week charts
+/// comparable. This is the ONE chart whose floor is above 0, so its
+/// `AreaMark` MUST fill from this floor (an `x`/`y`-only AreaMark fills to 0,
+/// which lies below the domain and spills the fill out of the plot frame).
+private let capacityChartYFloor = 50.0
 
 /// Dashboard palette (AlDente-style dark theme; the window forces
 /// `.darkAqua` so these read the same regardless of system appearance).
@@ -476,7 +482,8 @@ struct StatsView: View {
                     Chart(capacityChartPoints, id: \.timestamp) { point in
                         AreaMark(
                             x: .value("Time", point.timestamp),
-                            y: .value("Capacity %", point.percent)
+                            yStart: .value("Floor", capacityChartYFloor),
+                            yEnd: .value("Capacity %", point.percent)
                         )
                         .foregroundStyle(chartGradient(Palette.capacity))
                         LineMark(
@@ -485,7 +492,7 @@ struct StatsView: View {
                         )
                         .foregroundStyle(Palette.capacity)
                     }
-                    .chartYScale(domain: 50...100)
+                    .chartYScale(domain: capacityChartYFloor...100)
                 }
             }
         }

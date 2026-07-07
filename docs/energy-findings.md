@@ -30,5 +30,11 @@ swap is a one-line change.
 
 ## Status
 
-Not yet confirmed on real hardware — pending the Phase 6 HW gate (SPEC
-§10.7 item 4).
+**Confirmed on hardware 2026-07-07** (MacBookPro18,3, M1 Pro, macOS 26.3):
+`ri_billed_energy` is populated and produces non-zero deltas — the dashboard's
+energy card rendered a differentiated top-5 ranking (real app icons for
+registered apps, gear fallback for background processes like `mdworker_shared`
+/ `Firefox GPU Helper`). Since `topConsumers` drops all-zero deltas, a
+populated list proves the primary metric works. The CPU-time fallback
+(`ri_user_time + ri_system_time`) is therefore **not** in use on this machine
+and remains available only if future hardware reports all-zero billed energy.

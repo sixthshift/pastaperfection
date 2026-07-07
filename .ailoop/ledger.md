@@ -609,3 +609,25 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        chart renders >=1 pt, headline==health%; energy card plausible vs
        Activity Monitor + docs/energy-findings.md resolves billed-energy vs
        CPU-time fallback; regress §9.7 items 1-5.
+
+[0062] Phase 6 [HW] gate PASSED + escaped-bug repair (2026-07-07)
+  gate: human + charger. Daemon reinstalled (installed ampered byte-identical
+       to fresh build). Results: adapter V/A EXACT vs ioreg AdapterDetails
+       (20000mV/2250mA/45W/"pd charger"); Power Flow flips adapter(45W)->
+       battery(6.5W draw) on unplug, ->adapter(41W) on replug; capacity chart
+       headline 85.8% == health card; energy card differentiated top-5 with
+       NSRunningApplication icon + gearshape fallback; ri_billed_energy
+       CONFIRMED populated on this M1 Pro (list non-empty => non-zero deltas),
+       CPU-time fallback not needed (docs/energy-findings.md updated); ranges
+       + sessions + power sign-flip all render.
+  escaped-bug (escaped-bug rule): Maximum Capacity AreaMark filled to y=0,
+       below its 50...100 domain floor -> gradient spilled the plot frame over
+       the Sessions card. Passed T034 acceptance because that check was
+       existence-only ("chart is present") — cannot catch a containment defect.
+       FIX (app-only, StatsView.swift): AreaMark given explicit yStart at the
+       new shared `capacityChartYFloor` constant; domain tied to same constant.
+       swift build + 204 tests green; make-app rebuilt; app relaunched; user
+       confirmed contained. STRENGTHENED CHECK recorded in oracle.md: any
+       chart with a y-floor > 0 must set an explicit AreaMark yStart at it.
+  STATUS: Phase 6 CLOSED. Phase 5 [HW] items also satisfied by this gate
+       (shared daemon reinstall + dashboard). Backlog 34/34 done.

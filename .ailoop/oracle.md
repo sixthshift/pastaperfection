@@ -181,21 +181,32 @@ Autonomous checks (merged tree):
 - [ ] `topConsumers`: ranking order + name tie-break; top-`limit` cap; pid in
       only one snapshot dropped; `current < previous` dropped (no underflow);
       zero-delta dropped; empty input → empty
-- [ ] `swift build` + `bash scripts/test.sh` green; `scripts/make-app.sh` still
+- [x] `swift build` + `bash scripts/test.sh` green; `scripts/make-app.sh` still
       produces a lint-clean, ad-hoc-signed bundle
 
-**[HW]** gate (chunk checkpoint, human + charger, after daemon reinstall via
-`sudo ampere-cli uninstall && sudo ampere-cli install`):
-- [ ] Power Adapter card V/max-current match `ioreg -rn AppleSmartBattery`
-      `AdapterDetails` for the physical charger
-- [ ] Power Flow: plugged+charging → adapter-side direction, positive watts;
-      unplug → battery direction ≤ 10 s; watts plausible vs Activity Monitor
-- [ ] Maximum Capacity chart renders ≥ 1 point after daemon logs ≥ 1 new sample;
-      headline % equals Battery Health card's %
-- [ ] Energy card: top entries plausible vs Activity Monitor Energy pane
-      ordering; updates ≤ ~20 s of a CPU-heavy task; `docs/energy-findings.md`
-      records `ri_billed_energy` vs CPU-time fallback
-- [ ] regression: §9.7 HW items 1–5 re-checked (protocol + dashboard both changed)
+**[HW]** gate — PASSED 2026-07-07 (human + charger; daemon reinstalled, installed
+`ampered` hash == fresh build). Escaped-bug caught + fixed at this gate: see below.
+- [x] Power Adapter card V/max-current match `ioreg -rn AppleSmartBattery`
+      `AdapterDetails` — EXACT: 20000 mV / 2250 mA / 45 W / "pd charger"
+- [x] Power Flow: plugged+charging → adapter-side, +watts; unplug → battery ≤10 s
+      (45 W → 6.5 W draw); replug → adapter (41 W). Watts = battery-side magnitude.
+- [x] Maximum Capacity chart renders, headline 85.8% == Battery Health card
+      (after the AreaMark-baseline fix; before it, the fill spilled the frame)
+- [x] Energy card: differentiated top-5 with icon fallback; `ri_billed_energy`
+      CONFIRMED working on this M1 Pro (populated list ⇒ non-zero deltas), no
+      CPU-time fallback needed — `docs/energy-findings.md` updated
+- [x] regression: ranges (24h/7d/30d/All) render, sessions list today's runs,
+      power chart sign-flips across plug/unplug
+
+**Escaped-bug (§ oracle amendment — escaped-bug rule).** The Maximum Capacity
+`AreaMark` filled to y=0 (below its 50…100 domain floor), spilling the gradient
+out of the plot frame over the Sessions card. It passed T034's acceptance because
+that acceptance was an *existence* check ("a Maximum Capacity chart … is present")
+— the weakest, most-gameable kind, which cannot catch a rendering-containment
+defect. STRENGTHENED CHECK: any chart whose y-domain floor is > 0 MUST give its
+`AreaMark` an explicit `yStart` at that floor (an x/y-only AreaMark baselines at 0
+and overflows). Enforced in code via the shared `capacityChartYFloor` constant +
+comment; future changes to a domain-floored chart get scrutinized against this.
 
 ## Caps
 
