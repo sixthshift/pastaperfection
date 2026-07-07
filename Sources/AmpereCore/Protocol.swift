@@ -195,13 +195,45 @@ public enum PauseReason: String, Codable, Equatable, Sendable {
 /// details are available (no adapter connected, or the registry didn't
 /// expose the sub-dictionary) — Phase 5 never writes SMC keys, this is a
 /// read-only projection.
-public struct AdapterPayload: Codable, Equatable, Sendable {
+public struct AdapterPayload: Equatable, Sendable {
     public var watts: Int
     public var name: String?
+    /// Adapter's rated/negotiated voltage, in millivolts (SPEC §10.2). `nil`
+    /// when absent from JSON (old-daemon compat) or when the registry didn't
+    /// expose `AdapterVoltage`.
+    public var voltageMV: Int?
+    /// Adapter's rated/negotiated current, in milliamps (SPEC §10.2). `nil`
+    /// when absent from JSON (old-daemon compat) or when the registry didn't
+    /// expose `Current`.
+    public var currentMA: Int?
 
-    public init(watts: Int, name: String? = nil) {
+    public init(watts: Int, name: String? = nil, voltageMV: Int? = nil, currentMA: Int? = nil) {
         self.watts = watts
         self.name = name
+        self.voltageMV = voltageMV
+        self.currentMA = currentMA
+    }
+}
+
+extension AdapterPayload: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case watts, name, voltageMV, currentMA
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        watts = try container.decode(Int.self, forKey: .watts)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        voltageMV = try container.decodeIfPresent(Int.self, forKey: .voltageMV)
+        currentMA = try container.decodeIfPresent(Int.self, forKey: .currentMA)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(watts, forKey: .watts)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(voltageMV, forKey: .voltageMV)
+        try container.encodeIfPresent(currentMA, forKey: .currentMA)
     }
 }
 

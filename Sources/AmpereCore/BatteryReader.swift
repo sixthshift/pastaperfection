@@ -31,6 +31,8 @@ public enum BatteryReader {
         static let watts = "Watts"
         static let name = "Name"
         static let description = "Description"
+        static let voltage = "AdapterVoltage"
+        static let current = "Current"
     }
 
     /// Shared `Any? -> Int?` coercion (`NSNumber` or `Int`), used by both
@@ -115,18 +117,25 @@ public enum BatteryReader {
 
     /// Parses the `AdapterDetails` sub-dictionary of the same injected
     /// `AppleSmartBattery` dict (SPEC §9.4): `Watts` (`Int`) is required;
-    /// `Name`, falling back to `Description`, is optional. Pure and total,
-    /// matching `parse(_:)`'s style — an absent `AdapterDetails`
-    /// sub-dictionary, or a missing/mistyped `Watts`, both yield `nil`
-    /// rather than crashing or inventing a value. Kept separate from
-    /// `parse(_:)`/`BatteryReading` (whose shape is frozen — see
-    /// `BatteryState.swift`) since this is an independently-optional read of
-    /// the same underlying dict.
+    /// `Name`, falling back to `Description`, is optional. Also reads the
+    /// rated/negotiated electrical specs (SPEC §10.2): `AdapterVoltage`
+    /// (millivolts) and `Current` (milliamps), each independently optional —
+    /// absent or mistyped yields `nil` for that field only, never affecting
+    /// `watts`/`name`. Pure and total, matching `parse(_:)`'s style — an
+    /// absent `AdapterDetails` sub-dictionary, or a missing/mistyped
+    /// `Watts`, both yield `nil` rather than crashing or inventing a value.
+    /// Kept separate from `parse(_:)`/`BatteryReading` (whose shape is
+    /// frozen — see `BatteryState.swift`) since this is an
+    /// independently-optional read of the same underlying dict.
     public static func parseAdapter(_ dict: [String: Any]) -> AdapterPayload? {
         guard let details = dict[AdapterKey.details] as? [String: Any] else { return nil }
         guard let watts = intValue(details[AdapterKey.watts]) else { return nil }
         let name = (details[AdapterKey.name] as? String) ?? (details[AdapterKey.description] as? String)
-        return AdapterPayload(watts: watts, name: name)
+        // SPEC §10.2: rated/negotiated electrical specs. Absent or mistyped
+        // -> nil, never a crash; watts/name behavior is unaffected.
+        let voltageMV = intValue(details[AdapterKey.voltage])
+        let currentMA = intValue(details[AdapterKey.current])
+        return AdapterPayload(watts: watts, name: name, voltageMV: voltageMV, currentMA: currentMA)
     }
 
     /// Live path: fetches the `AppleSmartBattery` IORegistry service

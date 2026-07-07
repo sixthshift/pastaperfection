@@ -161,4 +161,49 @@ import Testing
         #expect(adapter?.watts == 61)
         #expect(adapter?.name == "61W USB-C Power Adapter")
     }
+
+    // MARK: - AdapterDetails electrical specs (SPEC §10.2)
+
+    @Test func adapterDetailsWithVoltageAndCurrentParsesToPayload() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": 96,
+                "AdapterVoltage": 19500,
+                "Current": 3250
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+
+        #expect(adapter?.watts == 96)
+        #expect(adapter?.voltageMV == 19500)
+        #expect(adapter?.currentMA == 3250)
+    }
+
+    @Test func adapterDetailsWithOnlyWattsYieldsNilVoltageAndCurrent() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": 96
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+
+        #expect(adapter?.watts == 96)
+        #expect(adapter?.voltageMV == nil)
+        #expect(adapter?.currentMA == nil)
+    }
+
+    @Test func adapterDetailsWithMistypedVoltageYieldsNilVoltageButWattsStillParsed() {
+        let dict: [String: Any] = [
+            "AdapterDetails": [
+                "Watts": 96,
+                "AdapterVoltage": "19500",
+                "Current": 3250
+            ]
+        ]
+        let adapter = BatteryReader.parseAdapter(dict)
+
+        #expect(adapter?.watts == 96)
+        #expect(adapter?.voltageMV == nil)
+        #expect(adapter?.currentMA == 3250)
+    }
 }

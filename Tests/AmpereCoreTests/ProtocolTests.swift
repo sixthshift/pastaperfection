@@ -257,6 +257,33 @@ import Foundation
         #expect(decoded.adapter?.name == nil)
     }
 
+    /// `AdapterPayload` electrical specs (SPEC §10.2): absent from JSON
+    /// decodes to `nil`/`nil`, matching `adapter`'s own defaulting style.
+    @Test func adapterPayloadDecodesWithoutVoltageAndCurrentKeys() throws {
+        let json = #"{"watts":96,"name":"96W USB-C Power Adapter"}"#
+        let decoded = try ProtocolCodec.decode(AdapterPayload.self, from: json)
+
+        #expect(decoded.watts == 96)
+        #expect(decoded.name == "96W USB-C Power Adapter")
+        #expect(decoded.voltageMV == nil)
+        #expect(decoded.currentMA == nil)
+    }
+
+    /// A payload with all fields (including the SPEC §10.2 electrical specs)
+    /// round-trips through encode -> decode unchanged.
+    @Test func adapterPayloadRoundTripsWithVoltageAndCurrent() throws {
+        let payload = AdapterPayload(watts: 96, name: "96W USB-C Power Adapter", voltageMV: 19500, currentMA: 3250)
+
+        let line = try ProtocolCodec.encodeLine(payload)
+        let decoded = try ProtocolCodec.decode(AdapterPayload.self, from: line)
+
+        #expect(decoded == payload)
+        #expect(decoded.watts == 96)
+        #expect(decoded.name == "96W USB-C Power Adapter")
+        #expect(decoded.voltageMV == 19500)
+        #expect(decoded.currentMA == 3250)
+    }
+
     // MARK: - get-config response reuses Config
 
     @Test func getConfigResponseRoundTripsUsingConfigType() throws {

@@ -573,7 +573,7 @@
   {
    "id": "T031",
    "title": "Adapter electrical specs: parse AdapterVoltage/Current, additive AdapterPayload fields, daemon fill",
-   "status": "todo",
+   "status": "done",
    "depends_on": [],
    "files": [
     "Sources/AmpereCore/BatteryReader.swift",
@@ -585,7 +585,7 @@
    "context": "SPEC §10.2 (locked, reads-only, additive-only). Build ONLY the adapter electrical-specs plumbing; do NOT touch the UI (StatsView) or the daemon get-state assembly beyond what already flows through `parseAdapter`.\n\nALREADY EXISTS (do not re-litigate): `BatteryReader.parseAdapter(_ dict:) -> AdapterPayload?` (Sources/AmpereCore/BatteryReader.swift ~line 125) reads the `AdapterDetails` sub-dict for `Watts`+`Name`/`Description`. `AdapterPayload` (Sources/AmpereCore/Protocol.swift ~line 198) is `Codable, Equatable, Sendable` with `watts: Int` and `name: String?`. Other payloads in Protocol.swift use a hand-rolled `init(from:)` for default-nil decoding of additive fields (see `StatsSample`/`GetStatePayload` there for the exact pattern) — MATCH THAT PATTERN.\n\nDO:\n1. Extend `AdapterPayload` with `voltageMV: Int?` and `currentMA: Int?`. Encode when present; decode with default `nil` via a hand-rolled `init(from:)` + `encode(to:)` matching the existing additive-field pattern in Protocol.swift. Old-app↔new-daemon and vice versa must not crash (a JSON `AdapterPayload` with neither new key must decode to nil/nil; one with them must round-trip).\n2. In `parseAdapter`, additionally read `AdapterVoltage` (Int, millivolts) and `Current` (Int, milliamps) from the same `AdapterDetails` sub-dict using the SAME totality rules already there (use the existing private `intValue(_:)` helper). Absent or mistyped (e.g. a String where an Int is expected) → that field `nil`, never a crash, parser stays pure over the injected `[String: Any]`. watts/name behavior is UNCHANGED — an AdapterDetails with watts but no voltage still returns a non-nil payload.\n\nThese are NEGOTIATED/RATED values, not live draw (that framing matters for the later UI ticket; you only produce the data here). Do NOT add any new SMC read, do NOT shell out to ioreg, do NOT call IOPSCopyExternalPowerAdapterDetails.\nAdd an AdapterKey entry for the two new keys next to the existing `watts`/`name`/`description` keys.",
    "acceptance": "- `swift build` exits 0 and `bash scripts/test.sh` exits 0 (canonical runner; NOT `swift test`).\n- New BatteryReaderTests cases (contrast): (a) AdapterDetails with Watts+AdapterVoltage=19500+Current=3250 → payload.voltageMV==19500, currentMA==3250; (b) AdapterDetails with only Watts → voltageMV==nil, currentMA==nil, watts non-nil; (c) AdapterVoltage as a String → voltageMV==nil, no crash, watts still parsed.\n- New ProtocolTests cases: AdapterPayload JSON WITHOUT voltageMV/currentMA decodes to nil/nil; a payload with all fields round-trips through encode→decode unchanged.\n- `git diff --name-only` from merge-base touches ONLY the declared files (Package.swift/lockfile allowlisted).",
    "attempts": [],
-   "evidence": null
+   "evidence": "Independent re-verify at merge-base 37409ab: scope = only the 4 declared files (git diff --name-only); swift build exit 0; bash scripts/test.sh = 181 tests / 13 suites passed; gaming read = faithful (real intValue-based parsing, house-pattern hand-rolled Codable, no hardcoding; 3 BatteryReader contrast cases incl. field-level mistyped totality + 2 Protocol wire-compat cases)."
   },
   {
    "id": "T032",
