@@ -589,3 +589,23 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        findings.md deliverables. After T034 merges: Phase 6 autonomous oracle
        re-run on merged tree, then the [HW] gate (human + charger + daemon
        reinstall) — shared with the still-pending Phase 5 [HW] gate.
+
+[0061] chunk boundary — Phase 6 build COMPLETE, autonomous oracle GREEN
+  decision: end chunk (cap=2: T032+T034); Phase 6 build done, backlog drained
+  state: 34/34 done. T032 (capacity plumbing) @da03045, T034 (dashboard UI +
+       libproc energy sampler) @5a2ffbb. Both independently re-verified
+       (baseline + acceptance + scope + gaming read), first attempt each.
+  Phase 6 autonomous oracle (merged tree, all GREEN): adapter parser
+       present/absent/mistyped (T031); AdapterPayload wire compat (T031);
+       capacity fields old-JSON-nil + non-nil-only bucket avg + all-nil->nil
+       (T032); merge 7500.4->7500 (T032); powerFlow 4 distinct directions +
+       exact watts (T033); topConsumers ranking/tie/cap/underflow-drop (T033);
+       swift build + scripts/test.sh 204/15 green; make-app.sh -> lint-clean
+       ad-hoc-signed dist/PastaPerfection.app.
+  REMAINING to close Phase 6: the [HW] gate ONLY (human + charger + daemon
+       reinstall: sudo ampere-cli uninstall && sudo ampere-cli install). Folds
+       together with the still-pending Phase 5 [HW] gate. Items: adapter V/max-
+       current vs ioreg; power-flow direction+watts across plug/unplug; capacity
+       chart renders >=1 pt, headline==health%; energy card plausible vs
+       Activity Monitor + docs/energy-findings.md resolves billed-energy vs
+       CPU-time fallback; regress §9.7 items 1-5.
