@@ -631,3 +631,13 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        chart with a y-floor > 0 must set an explicit AreaMark yStart at it.
   STATUS: Phase 6 CLOSED. Phase 5 [HW] items also satisfied by this gate
        (shared daemon reinstall + dashboard). Backlog 34/34 done.
+
+[0063] T035 occlusion gating (power-draw hardening) — done, first attempt
+  origin: 2026-07-09 sleep-drain investigation (WhatsApp stale camera assertion
+       was the sleep blocker — ampere exonerated — but the app did real work
+       all night during display-off awake periods because isVisible stays true
+       then). USER-APPROVED semantic amendment of SPEC §9.6 locked mechanism:
+       visibility gate isVisible -> occlusionState (+ NSApp.occlusionState on
+       the model poll, + catch-up refresh on occlusion clearing).
+  verify: build green, 204/15 tests, bundle lint+sign OK, scope exact (2 files),
+       gaming read faithful. Committed with backlog/ledger.

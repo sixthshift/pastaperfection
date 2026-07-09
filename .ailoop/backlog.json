@@ -643,6 +643,21 @@
    "acceptance": "- `swift build` exits 0 and `bash scripts/test.sh` exits 0 (176 existing tests stay green — this ticket is mostly view code; the testable logic was covered in T031/T032/T033).\n- `scripts/make-app.sh` produces dist/PastaPerfection.app; `plutil -lint` on its Info.plist passes; `codesign -v` (ad-hoc) passes.\n- StatsView renders without the old adapter/capacity data missing: Power Adapter card shows Voltage/Max Current rows (or \"--\"); a Power Flow card and a Maximum Capacity chart and an Apps-Using-Energy card are present in the layout.\n- docs/energy-findings.md exists and describes the rusage mechanism + fallback (no process names).\n- `git diff --name-only` from merge-base touches ONLY the declared files.",
    "attempts": [],
    "evidence": "Independent re-verify at HEAD da03045: scope = only 3 declared files (dist/ gitignored); swift build exit 0; scripts/test.sh 204/15 green; scripts/make-app.sh -> dist/PastaPerfection.app, plutil OK, codesign OK. Gaming read faithful: EnergySampler libproc shim correct (proc_listallpids size-then-fill padded buffer, proc_pid_rusage/rusage_info_v4 rebind, rc==0 + per-pid skip guards, first sample()->[]); StatsView capacity chart compactMap nil-skip + domain 50...100 + placeholder; PowerFlowCore.compute reuses currentPayload+samples.last (no new socket fetch); energy 3rd timer window.isVisible-gated, Sampling until 2 ticks; adapter V/A rows; docs/energy-findings.md mechanism-only, no process names. [HW-gate 2026-07-07: adapter specs exact-match ioreg; power-flow flips adapter<->battery on plug/unplug; energy card ri_billed_energy confirmed working. Escaped-bug fixed: capacity AreaMark spilled plot frame (filled to 0 below 50-domain floor) -> explicit yStart baseline at capacityChartYFloor.]"
+  },
+  {
+   "id": "T035",
+   "title": "Occlusion-gate dashboard timers + app-wide poll (power-draw hardening)",
+   "status": "done",
+   "depends_on": [],
+   "files": [
+    "Sources/Ampere/StatsView.swift",
+    "Sources/Ampere/DaemonClientModel.swift"
+   ],
+   "origin": "repair/hardening: 2026-07-09 sleep-drain investigation; user-approved amendment of SPEC §9.6 visibility gate (isVisible -> occlusion)",
+   "context": "During awake-display-off periods the app keeps doing full work because NSWindow.isVisible stays true when the display sleeps or the window is covered. Amend the visibility gates to occlusion. (1) StatsView.swift: all three timer tick guards `window?.isVisible == true` become `window?.occlusionState.contains(.visible) == true`. (2) StatsView: observe NSWindow.didChangeOcclusionStateNotification for the hosting window; when it transitions to visible, immediately model.refresh() + reload stats so charts are not stale for up to 60 s. (3) DaemonClientModel.swift: the 5 s poll tick no-ops when NSApp.occlusionState does NOT contain .visible (menu-bar app: neither menu nor dashboard showing). Menu open already calls refresh() so nothing goes stale. NO daemon/protocol/core changes.",
+   "acceptance": "- swift build exit 0; bash scripts/test.sh exit 0 (204 tests stay green)\n- scripts/make-app.sh -> dist/PastaPerfection.app, plutil -lint OK, codesign -v OK\n- grep: no `isVisible` remains in the three timer guards in StatsView.swift; DaemonClientModel tick contains an NSApp.occlusionState guard\n- git diff touches ONLY the 2 declared files",
+   "attempts": [],
+   "evidence": "Independent re-verify: scope = 2 declared files only; swift build exit 0; scripts/test.sh 204/15 green; make-app + plutil + codesign OK. Gaming read faithful: all 3 timer guards (StatsView 718/728/738) use window?.occlusionState.contains(.visible); onReceive(didChangeOcclusionStateNotification, object: window) catch-up refresh guards on became-visible only; DaemonClientModel tick gated on NSApp.occlusionState (manual refresh() ungated as required); doc comments updated to match."
   }
  ]
 }

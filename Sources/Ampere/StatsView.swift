@@ -57,9 +57,12 @@ enum StatsWindowPresenter {
         // Built via the plain designated initializer (rather than
         // `NSWindow(contentViewController:)`) so the window exists before
         // `StatsView` is constructed — the view needs a reference to its
-        // own hosting window (`isVisible`, for the live-refresh timers'
-        // no-op-when-hidden gate, SPEC §9.6) that a `contentViewController:`
-        // convenience init can't supply up front.
+        // own hosting window (`occlusionState`, for the live-refresh timers'
+        // no-op-when-not-visible gate, SPEC §9.6) that a `contentViewController:`
+        // convenience init can't supply up front. `occlusionState` — not
+        // `isVisible` — is the correct signal here: `isVisible` stays true
+        // while the display is asleep or the window is fully covered, which
+        // is exactly when these timers must stop.
         let newWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 920, height: 720),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -96,7 +99,9 @@ struct StatsView: View {
     /// The hosting `NSWindow` (set once by `StatsWindowPresenter`). `weak`
     /// because the window already owns this view (via its
     /// `NSHostingController`) — a strong reference back would be a retain
-    /// cycle. Used only to gate the live-refresh timers on `isVisible`.
+    /// cycle. Used to gate the live-refresh timers on `occlusionState`
+    /// (display-asleep/fully-covered aware, unlike `isVisible`) and to
+    /// trigger an immediate refresh when occlusion clears.
     weak var window: NSWindow?
 
     /// Raw (server-downsampled-to-≤2000, not yet client-downsampled)
@@ -329,6 +334,20 @@ struct StatsView: View {
         .task {
             await loadStats()
             startTimersIfNeeded()
+        }
+        // Occlusion, not visibility, is what actually stops the timer ticks
+        // below (`window?.occlusionState.contains(.visible)`), so restoring
+        // visibility (display wakes, window uncovered/un-minimized/back on
+        // Space) needs its own catch-up refresh — otherwise the user stares
+        // at up-to-60 s-stale charts until the next tick happens to land.
+        // Filters by `object` so this only reacts to *this* window's
+        // notifications.
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification, object: window)
+        ) { _ in
+            guard window?.occlusionState.contains(.visible) == true else { return }
+            model.refresh()
+            Task { await loadStats() }
         }
     }
 
@@ -682,18 +701,21 @@ struct StatsView: View {
         }
     }
 
-    /// Starts the two live-refresh `Timer`s (SPEC §9.6), idempotently —
-    /// safe to call more than once (e.g. if `.task` re-runs) since it no-ops
-    /// once both timers exist. Deliberately never torn down on
+    /// Starts the three live-refresh `Timer`s (SPEC §9.6/§10.5), idempotently
+    /// — safe to call more than once (e.g. if `.task` re-runs) since it
+    /// no-ops once all three timers exist. Deliberately never torn down on
     /// `onDisappear`: the hosting window is retained for the app's lifetime
     /// (`StatsWindowPresenter`), so "disappear" (window closed/hidden) isn't
-    /// a real teardown — each tick instead no-ops via the `window?.isVisible`
-    /// guard below.
+    /// a real teardown — each tick instead no-ops via the
+    /// `window?.occlusionState.contains(.visible)` guard below. Occlusion,
+    /// not `isVisible`, is the gate: `isVisible` stays true through a sleeping
+    /// display or a fully-covered window, which is exactly when these ticks
+    /// must stop doing work (power-draw hardening, T035).
     private func startTimersIfNeeded() {
         if liveTimer == nil {
             let timer = Timer(timeInterval: liveRefreshInterval, repeats: true) { _ in
                 Task { @MainActor in
-                    guard window?.isVisible == true else { return }
+                    guard window?.occlusionState.contains(.visible) == true else { return }
                     model.refresh()
                 }
             }
@@ -703,7 +725,7 @@ struct StatsView: View {
         if chartsTimer == nil {
             let timer = Timer(timeInterval: chartsRefreshInterval, repeats: true) { _ in
                 Task { @MainActor in
-                    guard window?.isVisible == true else { return }
+                    guard window?.occlusionState.contains(.visible) == true else { return }
                     await loadStats()
                 }
             }
@@ -713,7 +735,7 @@ struct StatsView: View {
         if energyTimer == nil {
             let timer = Timer(timeInterval: energyRefreshInterval, repeats: true) { _ in
                 Task { @MainActor in
-                    guard window?.isVisible == true else { return }
+                    guard window?.occlusionState.contains(.visible) == true else { return }
                     energyEntries = EnergySampler.sample(limit: energyCardRowLimit)
                     energySampleTicks += 1
                 }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import AmpereCore
 
@@ -53,13 +54,19 @@ public final class DaemonClientModel: ObservableObject {
 
     /// Starts the 5 s poll timer (idempotent) and fires an immediate refresh.
     /// Safe to call again (e.g. on popover open) — it just re-fires
-    /// `refresh()` without creating a second timer.
+    /// `refresh()` without creating a second timer. Each recurring tick
+    /// no-ops when the app has no visible window (`NSApp.occlusionState`,
+    /// not `isVisible` — the latter stays true through a sleeping display or
+    /// a fully-covered window, power-draw hardening, T035); this initial
+    /// call and any caller-triggered `refresh()` are unaffected, since the
+    /// gate lives only in the timer closure below.
     public func start() {
         refresh()
         guard timer == nil else { return }
         let newTimer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
+                guard NSApp.occlusionState.contains(.visible) else { return }
                 self.refresh()
             }
         }
