@@ -15,7 +15,7 @@ lives in view `@State` in-memory and nowhere else (SPEC §10.5 privacy rule).
   10 s snapshot (`EnergySampler`, app process only — not the daemon).
 - Ranking: two consecutive snapshots are diffed by pid and ranked by the
   pure, unit-tested `EnergyRanking.topConsumers(previous:current:limit:)`
-  in `AmpereCore` — pids present in only one snapshot dropped, a metric
+  in `PastaPerfectionCore` — pids present in only one snapshot dropped, a metric
   decrease (counter reset/pid reuse) dropped rather than underflowed,
   zero-delta entries dropped, sorted by delta descending (ties by name).
 

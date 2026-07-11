@@ -641,3 +641,28 @@ Append-only journal. Newest entry at the bottom. Never rewrite history.
        the model poll, + catch-up refresh on occlusion clearing).
   verify: build green, 204/15 tests, bundle lint+sign OK, scope exact (2 files),
        gaming read faithful. Committed with backlog/ledger.
+
+[0064] Project-wide rename Ampere → PastaPerfection (code identifiers) 2026-07-11
+  scope: USER-DIRECTED semantic amendment of SPEC §2 target names. Chose
+       "code only, keep paths" (user-selected). Renamed: SPM targets/modules
+       AmpereCore→PastaPerfectionCore, ampered→pastaperfectiond,
+       Ampere→PastaPerfection (app), ampere-cli→pastaperfection-cli,
+       AmpereCoreTests→PastaPerfectionCoreTests; the 5 Sources/Tests dirs +
+       AmpereApp.swift→PastaPerfectionApp.swift; @main AmpereApp→
+       PastaPerfectionApp; all imports/types/comments; scripts, SPEC.md,
+       oracle.md, README, docs (not ledger/backlog = history, not
+       docs/reference = vendored MIT). Internal DispatchQueue labels also
+       moved to com.pastaperfection.*. Fixed stale SPEC bundle-id
+       com.ampere.app→com.pastaperfection.app (make-app already used it).
+  KEPT (deployment identifiers, per user choice — running daemon + on-disk
+       data untouched, NO reinstall): launchd label com.ampere.daemon (+plist
+       path), socket /var/run/ampere.sock, helper /Library/PrivilegedHelperTools/
+       ampered (install DEST; built binary is now pastaperfectiond, copied there),
+       data dir /Library/Application Support/Ampere/.
+  method: sentinel-protected sweep (protect locked literals → rename → restore);
+       verified zero stray ampere outside the 4 kept identifiers.
+  verify: swift build green; scripts/test.sh 204/15 green (PlistTests confirms
+       kept label+helper path); make-app→dist/PastaPerfection.app, plutil+
+       codesign OK; renamed .build/release/pastaperfection-cli reaches the LIVE
+       (unchanged) installed daemon over the kept socket (percent 61/limit 80).
+  SPEC.md §2 target names updated in place; this ledger entry is the amendment record.

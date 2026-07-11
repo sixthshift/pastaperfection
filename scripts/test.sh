@@ -1,5 +1,5 @@
 #!/bin/bash
-# Canonical test runner for ampere (oracle.md baseline gate).
+# Canonical test runner for pastaperfection (oracle.md baseline gate).
 # CLT-only machines lack XCTest and don't auto-wire Swift Testing's framework,
 # macro plugin, or runtime dylib paths — these flags supply them (ledger 0005).
 set -euo pipefail

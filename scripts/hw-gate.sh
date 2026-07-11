@@ -1,12 +1,12 @@
 #!/bin/bash
-# Ampere hardware gate — the human-present [HW] checks from .ailoop/oracle.md
+# PastaPerfection hardware gate — the human-present [HW] checks from .ailoop/oracle.md
 # (Phases 1-4). Run from a normal Terminal (sudo will prompt): bash scripts/hw-gate.sh
 # Requires: charger attached. Every step prints PASS/FAIL; script continues on
 # failure so you get the full picture, and always restores a safe state at the end.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-CLI=.build/release/ampere-cli
+CLI=.build/release/pastaperfection-cli
 SOCK=/var/run/ampere.sock
 FAILS=0
 

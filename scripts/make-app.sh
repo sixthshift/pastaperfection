@@ -1,11 +1,11 @@
 #!/bin/bash
-# Assembles dist/Ampere.app from the release build (SPEC §2, §5 Phase 2).
+# Assembles dist/PastaPerfection.app from the release build (SPEC §2, §5 Phase 2).
 # Idempotent: safe to re-run; always rebuilds and re-assembles from scratch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP_NAME="PastaPerfection"   # user-facing name (bundle, Finder, menu bar app)
-BINARY_NAME="Ampere"         # SPM target name — internal, unchanged
+BINARY_NAME="PastaPerfection"         # SPM target name — internal, unchanged
 BUNDLE_ID="com.pastaperfection.app"
 DIST_DIR="dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
@@ -25,9 +25,9 @@ cp "$RELEASE_DIR/$BINARY_NAME" "$MACOS_DIR/$APP_NAME"
 
 # Bundle the daemon and CLI binaries into Resources so the app (specifically
 # the daemon-unavailable install prompt) can reference a known-good path to
-# `ampere-cli install` without relying on anything outside the bundle.
-cp "$RELEASE_DIR/ampered" "$RESOURCES_DIR/ampered"
-cp "$RELEASE_DIR/ampere-cli" "$RESOURCES_DIR/ampere-cli"
+# `pastaperfection-cli install` without relying on anything outside the bundle.
+cp "$RELEASE_DIR/pastaperfectiond" "$RESOURCES_DIR/pastaperfectiond"
+cp "$RELEASE_DIR/pastaperfection-cli" "$RESOURCES_DIR/pastaperfection-cli"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

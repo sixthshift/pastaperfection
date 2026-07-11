@@ -2,33 +2,33 @@
 import PackageDescription
 
 let package = Package(
-    name: "Ampere",
+    name: "PastaPerfection",
     platforms: [
         .macOS(.v14)
     ],
     targets: [
         .target(
-            name: "AmpereCore",
+            name: "PastaPerfectionCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "ampered",
-            dependencies: ["AmpereCore"],
+            name: "pastaperfectiond",
+            dependencies: ["PastaPerfectionCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "Ampere",
-            dependencies: ["AmpereCore"],
+            name: "PastaPerfection",
+            dependencies: ["PastaPerfectionCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "ampere-cli",
-            dependencies: ["AmpereCore"],
+            name: "pastaperfection-cli",
+            dependencies: ["PastaPerfectionCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "AmpereCoreTests",
-            dependencies: ["AmpereCore"],
+            name: "PastaPerfectionCoreTests",
+            dependencies: ["PastaPerfectionCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]

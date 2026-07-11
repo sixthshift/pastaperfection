@@ -3,7 +3,7 @@
 Empirical results from the Phase 0 hardware gate (2026-07-05, sudo, charger attached).
 Later SMC-touching tickets MUST follow this table (SPEC §7).
 
-## Key inventory (live probe via `ampere-cli keys`)
+## Key inventory (live probe via `pastaperfection-cli keys`)
 
 | Key  | Exists | Type | Size | Purpose |
 |------|--------|------|------|---------|

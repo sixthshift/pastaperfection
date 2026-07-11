@@ -1,4 +1,4 @@
-# Ampere — locked build spec (v1 + v2 dashboard addendum §9 + v3 addendum §10)
+# PastaPerfection — locked build spec (v1 + v2 dashboard addendum §9 + v3 addendum §10)
 
 A free, self-built replacement for AlDente (free + Pro features) targeting exactly one
 machine: **MacBook Pro 18,3 (M1 Pro), macOS 26.3 (Tahoe firmware), Apple Silicon.**
@@ -35,27 +35,27 @@ Worst case at all times = the Mac charges normally like a stock Mac.
 - Test framework: **Swift Testing** (`import Testing`, built into the toolchain; amended
   from XCTest 2026-07-05 — CLT ships no XCTest, user-approved). No third-party dependencies anywhere.
 - Targets:
-  - `AmpereCore` (library) — SMC client, battery reader, pure control logic, socket
+  - `PastaPerfectionCore` (library) — SMC client, battery reader, pure control logic, socket
     protocol codec, config model. No `main`.
-  - `ampered` (executable) — the root daemon.
-  - `Ampere` (executable) — SwiftUI `MenuBarExtra` app.
-  - `ampere-cli` (executable) — spike/debug/install CLI.
-  - `AmpereCoreTests` — Swift Testing target for `AmpereCore`.
+  - `pastaperfectiond` (executable) — the root daemon.
+  - `PastaPerfection` (executable) — SwiftUI `MenuBarExtra` app.
+  - `pastaperfection-cli` (executable) — spike/debug/install CLI.
+  - `PastaPerfectionCoreTests` — Swift Testing target for `PastaPerfectionCore`.
 - UI: SwiftUI `MenuBarExtra` (`.menuBarExtraStyle(.window)`), Swift Charts for stats.
   The app sets `NSApp.setActivationPolicy(.accessory)` at launch.
-- App bundle: `scripts/make-app.sh` assembles `dist/Ampere.app` (Contents/MacOS/Ampere,
-  Info.plist with `LSUIElement=true`, bundle id `com.ampere.app`, `codesign -s -` ad-hoc).
+- App bundle: `scripts/make-app.sh` assembles `dist/PastaPerfection.app` (Contents/MacOS/PastaPerfection,
+  Info.plist with `LSUIElement=true`, bundle id `com.pastaperfection.app`, `codesign -s -` ad-hoc).
   Launch-at-login: `SMAppService.mainApp.register()` from the bundled app.
 
 ## §3 Locked architecture
 
 ```
-Ampere.app (user)  ──JSON lines over /var/run/ampere.sock──▶  ampered (root, launchd)
-ampere-cli (user/sudo)  ──same socket──▶                      │ owns ALL SMC writes
+PastaPerfection.app (user)  ──JSON lines over /var/run/ampere.sock──▶  pastaperfectiond (root, launchd)
+pastaperfection-cli (user/sudo)  ──same socket──▶                      │ owns ALL SMC writes
                                                               │ control loop + telemetry
 ```
 
-- **Only `ampered` (and `ampere-cli` in Phase 0 spike commands) ever writes SMC.**
+- **Only `pastaperfectiond` (and `pastaperfection-cli` in Phase 0 spike commands) ever writes SMC.**
 - Daemon: launchd label `com.ampere.daemon`, plist `/Library/LaunchDaemons/com.ampere.daemon.plist`,
   binary installed at `/Library/PrivilegedHelperTools/ampered`, `RunAtLoad=true`, `KeepAlive=true`.
 - Socket: `/var/run/ampere.sock`, owner `root:staff`, mode `0660` (single-user machine;
@@ -168,32 +168,32 @@ Verification is two-tier (locked):
   checkpoints, never inside worker sessions.
 
 ### Phase 0 — SMC spike (go/no-go for the project)
-Deliverables: package scaffold; SMC client in `AmpereCore`; `ampere-cli` commands
+Deliverables: package scaffold; SMC client in `PastaPerfectionCore`; `pastaperfection-cli` commands
 `keys` (print key-info for the §4 allowlist + existence), `status` (battery state, no
 root), `pause`, `resume`, `adapter on|off`.
-- Hardware gate: charger attached, battery < 95%: `sudo ampere-cli pause` →
+- Hardware gate: charger attached, battery < 95%: `sudo pastaperfection-cli pause` →
   within 15 s `pmset -g batt` contains `not charging` (or `AC attached; not charging`);
-  `sudo ampere-cli resume` → charging resumes. `adapter off` → `pmset -g batt` shows
+  `sudo pastaperfection-cli resume` → charging resumes. `adapter off` → `pmset -g batt` shows
   `Battery Power` while physically plugged in; `adapter on` reverts. Findings recorded
   in `docs/smc-findings.md`. If `CHTE` fails → try `CH0B`/`CH0C` before escalating.
 
 ### Phase 1 — Core + daemon
 Deliverables: battery reader; config; pure control core (§3.3) fully unit-tested;
-socket codec; `ampered` daemon (event loop, SMC adapter application, socket server,
-signal-restore); `ampere-cli install|uninstall|state` (install = copy binary, write
+socket codec; `pastaperfectiond` daemon (event loop, SMC adapter application, socket server,
+signal-restore); `pastaperfection-cli install|uninstall|state` (install = copy binary, write
 plist, `launchctl bootstrap system`; uninstall = bootout, remove files, restore charging).
-- Hardware gate: `sudo ampere-cli install` → `launchctl print system/com.ampere.daemon`
-  healthy; `ampere-cli state` (no sudo) returns JSON; set limit 75 with battery > 75%
+- Hardware gate: `sudo pastaperfection-cli install` → `launchctl print system/com.ampere.daemon`
+  healthy; `pastaperfection-cli state` (no sudo) returns JSON; set limit 75 with battery > 75%
   → charging inhibited ≤ 60 s; sleep 10 min plugged in → still inhibited on wake;
-  `sudo ampere-cli uninstall` → no launchd entry, socket gone, charging normal.
+  `sudo pastaperfection-cli uninstall` → no launchd entry, socket gone, charging normal.
 
 ### Phase 2 — Menu bar app
-Deliverables: `Ampere` MenuBarExtra (battery % + state glyph in the bar); popover with
+Deliverables: `PastaPerfection` MenuBarExtra (battery % + state glyph in the bar); popover with
 limit slider (50–100, steps of 5), mode toggles (sailing), buttons (Discharge to limit,
 Top up), daemon-not-installed state with install instructions; `scripts/make-app.sh`;
 launch-at-login toggle.
-- Gate: scripted socket round-trip (`ampere-cli` sets limit 65 → `get-state` reflects 65
-  and UI shows 65 on next open); `scripts/make-app.sh` produces `dist/Ampere.app` that
+- Gate: scripted socket round-trip (`pastaperfection-cli` sets limit 65 → `get-state` reflects 65
+  and UI shows 65 on next open); `scripts/make-app.sh` produces `dist/PastaPerfection.app` that
   launches and shows the menu bar item.
 
 ### Phase 3 — Heat protection + stats
@@ -240,7 +240,7 @@ Defined entirely in §9 (locked addendum, 2026-07-06). Same two-tier verificatio
 - Hardware gates need: the user present, charger attached, `sudo`, battery in a
   workable range (<95% for pause tests, >75% for limit-75 test — adjust the tested
   limit value to current charge rather than waiting for the battery).
-- macOS native Charge Limit (Settings → Battery) must remain **off/100%** while Ampere
+- macOS native Charge Limit (Settings → Battery) must remain **off/100%** while PastaPerfection
   is active (two controllers fighting). Documented in README by Phase 2.
 
 ---
@@ -276,7 +276,7 @@ values, 60 s charts); include time-to-limit estimate and charge session log.
 - New file: `/Library/Application Support/Ampere/telemetry-archive.jsonl`,
   JSONL, owned by the daemon, same crash-tolerant read rules as telemetry
   (corrupt lines skipped).
-- `ArchiveSample` (Codable, in `AmpereCore/Telemetry.swift` or sibling file):
+- `ArchiveSample` (Codable, in `PastaPerfectionCore/Telemetry.swift` or sibling file):
   ```json
   { "ts": "<bucket start, 15-min aligned>", "percentAvg": 79.5, "percentMin": 78,
     "percentMax": 81, "temperatureCAvg": 30.9, "amperageMAAvg": -412,
@@ -324,7 +324,7 @@ app against an old daemon and vice versa must not crash)
   unless `AdapterDetails` proves absent on this machine (record the finding in
   `docs/smc-findings.md` if so).
 
-### §9.5 Pure derived logic (in `AmpereCore`, fully unit-tested, no IOKit)
+### §9.5 Pure derived logic (in `PastaPerfectionCore`, fully unit-tested, no IOKit)
 
 **Time-to-limit** — `func timeEstimate(samples: [StatsSample], state: GetStatePayload) -> TimeEstimate?`
 - Rate = mean `amperageMA` of the newest ≤ 10 samples no older than 15 min.
@@ -373,7 +373,7 @@ app against an old daemon and vice versa must not crash)
   `AdapterPayload` parsing (present/absent/mistyped), time-to-limit (charging,
   discharging, below-threshold, past-target), session segmentation (merge, gap
   split, short-run drop).
-- **Hardware gate (human, charger attached, after `sudo ampere-cli install`
+- **Hardware gate (human, charger attached, after `sudo pastaperfection-cli install`
   upgrade of the daemon):**
   1. Dashboard voltage/amperage within 1 unit of `ioreg -rn AppleSmartBattery`
      `Voltage`/`Amperage` read at the same time.
@@ -487,7 +487,7 @@ only, additive only)
 
 - Placement: a card in the dashboard grid (adapter glyph — watts pill —
   laptop glyph, AlDente-style).
-- All logic is one pure, unit-tested function in `AmpereCore`:
+- All logic is one pure, unit-tested function in `PastaPerfectionCore`:
   `powerFlow(externalConnected: Bool, isCharging: Bool, chargingPaused: Bool,
   amperageMA: Int, voltageMV: Int) -> PowerFlow` where
   `PowerFlow { direction, watts: Double }` and `direction` is one of:
@@ -512,7 +512,7 @@ only, additive only)
 
 ### §10.5 Apps Using Significant Energy (app-side sampler, in-memory only)
 
-- **Where it runs:** the `Ampere` app process (NOT the daemon — no root
+- **Where it runs:** the `PastaPerfection` app process (NOT the daemon — no root
   needed, and the daemon stays minimal). A third visible-gated timer, 10 s
   period, same `window?.isVisible` no-op rule as §9.6's timers.
 - **Mechanism (locked):** snapshot = enumerate `proc_listallpids()`, for each
@@ -524,7 +524,7 @@ only, additive only)
   hardware takes in `docs/energy-findings.md` (create it, sibling of
   `docs/smc-findings.md`). Do NOT shell out to `top`/`ps`; do not use private
   frameworks.
-- **Pure ranking core (in `AmpereCore`, fully unit-tested, no libproc):**
+- **Pure ranking core (in `PastaPerfectionCore`, fully unit-tested, no libproc):**
   `topConsumers(previous: [ProcessSnapshot], current: [ProcessSnapshot],
   limit: Int) -> [EnergyEntry]` where `ProcessSnapshot { pid, name, metric:
   UInt64 }`. Rules: pids present only in one snapshot are dropped (process
@@ -582,7 +582,7 @@ only, additive only)
      helper is added; plotting raw in the view with an inline `compactMap`
      is also acceptable.
 - **Hardware gate (human, charger attached, after daemon upgrade via
-  `sudo ampere-cli uninstall && sudo ampere-cli install`):**
+  `sudo pastaperfection-cli uninstall && sudo pastaperfection-cli install`):**
   1. Power Adapter card voltage/max-current match `ioreg -rn
      AppleSmartBattery` → `AdapterDetails` for the physical charger.
   2. Power Flow: plugged+charging → adapter-side direction with positive
@@ -603,7 +603,7 @@ only, additive only)
    (tests 1–2).
 2. T-V3-B: capacity plumbing — telemetry/archive/wire fields, bucketing,
    merge mapping (tests 3–4).
-3. T-V3-C: `powerFlow` + `topConsumers` pure cores in `AmpereCore`
+3. T-V3-C: `powerFlow` + `topConsumers` pure cores in `PastaPerfectionCore`
    (tests 5–6).
 4. T-V3-D: dashboard UI — adapter card rows, Power Flow card, fourth chart,
    energy card + libproc shim + third timer + `docs/energy-findings.md`.

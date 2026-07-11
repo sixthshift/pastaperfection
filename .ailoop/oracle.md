@@ -1,4 +1,4 @@
-# Oracle — ampere
+# Oracle — pastaperfection
 
 The definition of done. Workers cite it; the coordinator gates against it.
 Frozen means never *silently* changed (see SKILL.md amendment tiers).
@@ -9,8 +9,8 @@ Authoritative source: `SPEC.md` (repo root). Binding summary:
 
 - Swift + SPM only, tools-version 6.0, **`swiftLanguageMode(.v5)` on every target**,
   min `macOS(.v14)`, **Swift Testing** (amended, see ledger 0004), **zero third-party dependencies** (SPEC §2).
-- Targets exactly: `AmpereCore` (lib), `ampered` (root daemon), `Ampere` (MenuBarExtra
-  app), `ampere-cli`, `AmpereCoreTests` (SPEC §2).
+- Targets exactly: `PastaPerfectionCore` (lib), `pastaperfectiond` (root daemon), `PastaPerfection` (MenuBarExtra
+  app), `pastaperfection-cli`, `PastaPerfectionCoreTests` (SPEC §2).
 - Architecture: daemon owns ALL SMC writes; app/cli talk to it over
   `/var/run/ampere.sock`, JSON lines, protocol exactly as SPEC §3.1; config exactly
   SPEC §3.2; paths/launchd label exactly SPEC §3 (SPEC §3).
@@ -33,7 +33,7 @@ Authoritative source: `SPEC.md` (repo root). Binding summary:
 
 ## Baseline gate (every ticket, no exceptions)
 
-Run from repo root (`~/Projects/ampere`):
+Run from repo root (`~/Projects/pastaperfection`):
 
 - [ ] build: `swift build` → exit 0
 - [ ] full test suite: `bash scripts/test.sh` → exit 0, all tests pass
@@ -54,14 +54,14 @@ merged tree.
 
 ### Phase 0 — SMC spike (go/no-go)
 - [ ] `swift build && swift test` green
-- [ ] `.build/debug/ampere-cli status` (no sudo) prints JSON; its `percent` matches
+- [ ] `.build/debug/pastaperfection-cli status` (no sudo) prints JSON; its `percent` matches
       `pmset -g batt` percentage ±1
-- [ ] `.build/debug/ampere-cli keys` (no sudo) lists each allowlist key with
+- [ ] `.build/debug/pastaperfection-cli keys` (no sudo) lists each allowlist key with
       exists/type/size from live SMC key-info
 - [ ] `pause|resume|adapter` without root → clear error, exit code 1
-- [ ] **[HW]** charger attached, battery <95%: `sudo .build/debug/ampere-cli pause` →
+- [ ] **[HW]** charger attached, battery <95%: `sudo .build/debug/pastaperfection-cli pause` →
       ≤15 s `pmset -g batt` contains `not charging`; `resume` → charging resumes
-- [ ] **[HW]** `sudo .build/debug/ampere-cli adapter off` → `pmset -g batt` shows
+- [ ] **[HW]** `sudo .build/debug/pastaperfection-cli adapter off` → `pmset -g batt` shows
       `Battery Power` while plugged in; `adapter on` reverts
 - [ ] **[HW]** `docs/smc-findings.md` records confirmed keys/types/values
 
@@ -71,17 +71,19 @@ merged tree.
       top-up completion) — tests enumerate contrasting inputs → differing commands
 - [ ] socket loopback Swift Testing test: real unix socket in temp dir, request → response
       round-trip for get-state/set-limit/error case
-- [ ] `ampere-cli install --dry-run` prints plist path + bootstrap command
-- [ ] **[HW]** `sudo ampere-cli install` → `launchctl print system/com.ampere.daemon`
-      shows running; `ampere-cli state` (no sudo) returns live JSON
+- [ ] `pastaperfection-cli install --dry-run` prints plist path + bootstrap command
+- [ ] **[HW]** `sudo pastaperfection-cli install` → `launchctl print system/com.ampere.daemon`
+      shows running; `pastaperfection-cli state` (no sudo) returns live JSON
 - [ ] **[HW]** limit set below current % → charging inhibited ≤60 s; survives
-      10 min sleep; **[HW]** `sudo ampere-cli uninstall` → no launchd entry, no
+      10 min sleep; **[HW]** `sudo pastaperfection-cli uninstall` → no launchd entry, no
       socket, charging normal
 
 ### Phase 2 — Menu bar app
-- [ ] `scripts/make-app.sh` → `dist/PastaPerfection.app` exists (user-facing name
-      renamed from Ampere, commit b1955c0, 2026-07-06 — see ledger; SPM targets
-      unchanged), `plutil -lint` passes,
+- [ ] `scripts/make-app.sh` → `dist/PastaPerfection.app` exists (whole project
+      renamed Ampere → PastaPerfection: user-facing name at b1955c0 (2026-07-06),
+      then SPM targets/modules at the 2026-07-11 rename — see ledger; deployment
+      identifiers `com.ampere.daemon`/`/var/run/ampere.sock`/`.../ampered`/
+      `Application Support/Ampere` deliberately KEPT), `plutil -lint` passes,
       Info.plist has `LSUIElement=true`, binary present, `codesign -v` (ad-hoc) passes
 - [ ] **[HW]** socket round-trip: set limit 65 via cli → app UI reflects 65; app
       launches showing menu bar item
@@ -107,7 +109,7 @@ default-`false` decode, `GetStatePayload.adapter: AdapterPayload?`,
 `get-stats hours:0` = all history merged + server-downsampled ≤2,000);
 `AdapterDetails` parsed from the same AppleSmartBattery dict, reads only —
 **Phase 5 writes zero SMC keys**; pure derived logic (time-to-limit, sessions)
-in `AmpereCore`; one scrolling dashboard window, timers no-op when window not
+in `PastaPerfectionCore`; one scrolling dashboard window, timers no-op when window not
 visible. Additional tripwires (SPEC §9.9): no export/sync, no per-app energy,
 no history editing, no extra charts/zoom/pan, no menu-bar sparkline.
 
@@ -156,10 +158,10 @@ labelled as **negotiated specs**, never live); capacity history
 Double?` = mean of non-nil only, `StatsSample.maxCapacityMAh: Int?`, all
 additive default-`nil`; 4th chart plots `maxCapacityMAh/designCapacity×100`,
 nil samples skipped, y-domain 50…100); Power Flow (**one pure `powerFlow(...)`
-in AmpereCore**, four directions, captioned "Battery flow" — **not** system
+in PastaPerfectionCore**, four directions, captioned "Battery flow" — **not** system
 watts); per-app energy (**app-side only**, libproc `proc_pid_rusage`
 `ri_billed_energy` with CPU-time fallback recorded in `docs/energy-findings.md`;
-pure `topConsumers(...)` ranking core in AmpereCore; top-5, **in-memory only,
+pure `topConsumers(...)` ranking core in PastaPerfectionCore; top-5, **in-memory only,
 never persisted, never crosses the socket**). §10.0 ratifies the 2026-07-07
 AlDente-style restyle as the layout baseline; every §9.6 behavior stays binding.
 **Phase 6 writes zero SMC keys, reads zero new SMC keys** (§10.9).
@@ -185,7 +187,7 @@ Autonomous checks (merged tree):
       produces a lint-clean, ad-hoc-signed bundle
 
 **[HW]** gate — PASSED 2026-07-07 (human + charger; daemon reinstalled, installed
-`ampered` hash == fresh build). Escaped-bug caught + fixed at this gate: see below.
+`pastaperfectiond` hash == fresh build). Escaped-bug caught + fixed at this gate: see below.
 - [x] Power Adapter card V/max-current match `ioreg -rn AppleSmartBattery`
       `AdapterDetails` — EXACT: 20000 mV / 2250 mA / 45 W / "pd charger"
 - [x] Power Flow: plugged+charging → adapter-side, +watts; unplug → battery ≤10 s

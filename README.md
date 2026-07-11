@@ -1,6 +1,6 @@
-# Ampere
+# PastaPerfection
 
-Ampere is a free, self-built replacement for AlDente (free + Pro features),
+PastaPerfection is a free, self-built replacement for AlDente (free + Pro features),
 targeting exactly one machine: **MacBook Pro 18,3 (M1 Pro), macOS 26.3 (Tahoe
 firmware), Apple Silicon.** It's a DIY charge-limit / battery-health tool for
 that machine only — think "AlDente, but I own the whole stack": a menu bar
@@ -28,12 +28,12 @@ Full design is locked in `SPEC.md`.
 ## Architecture
 
 ```
-Ampere.app (menu bar, user)   ─┐
-                                ├─ JSON lines over /var/run/ampere.sock ──▶ ampered (root, launchd)
-ampere-cli (user/sudo)        ─┘                                            owns ALL SMC writes
+PastaPerfection.app (menu bar, user)   ─┐
+                                ├─ JSON lines over /var/run/ampere.sock ──▶ pastaperfectiond (root, launchd)
+pastaperfection-cli (user/sudo)        ─┘                                            owns ALL SMC writes
 ```
 
-Only `ampered` ever writes SMC keys, and only the keys on the allowlist in
+Only `pastaperfectiond` ever writes SMC keys, and only the keys on the allowlist in
 `SPEC.md` §4. The menu bar app and CLI are thin clients over a local Unix
 socket.
 
@@ -59,37 +59,37 @@ bash scripts/make-app.sh
 ```
 
 This builds a release build of every target and assembles
-`dist/Ampere.app` (`LSUIElement=true`, ad-hoc code-signed with
-`codesign -s -`). It also copies the `ampered` daemon and `ampere-cli` into
+`dist/PastaPerfection.app` (`LSUIElement=true`, ad-hoc code-signed with
+`codesign -s -`). It also copies the `pastaperfectiond` daemon and `pastaperfection-cli` into
 `Contents/Resources/` so the app's "daemon not installed" prompt can point at
 a known-good, bundled copy of the CLI. Re-running the script is safe — it
 always rebuilds and re-assembles the bundle from scratch.
 
-Open `dist/Ampere.app` to run the menu bar app. It shows a battery-percent
+Open `dist/PastaPerfection.app` to run the menu bar app. It shows a battery-percent
 item in the menu bar; there's no Dock icon or app-switcher entry
 (`LSUIElement`).
 
 ## Installing / uninstalling the daemon
 
-The menu bar app talks to a root daemon (`ampered`) that must be installed
-once via `ampere-cli`, either the bundled copy
-(`Ampere.app/Contents/Resources/ampere-cli`) or the one built by
-`swift build` at `.build/debug/ampere-cli` / `.build/release/ampere-cli`.
+The menu bar app talks to a root daemon (`pastaperfectiond`) that must be installed
+once via `pastaperfection-cli`, either the bundled copy
+(`PastaPerfection.app/Contents/Resources/pastaperfection-cli`) or the one built by
+`swift build` at `.build/debug/pastaperfection-cli` / `.build/release/pastaperfection-cli`.
 When the app can't reach the daemon it shows the exact command to run,
-derived from wherever `ampere-cli` actually is:
+derived from wherever `pastaperfection-cli` actually is:
 
 ```sh
-sudo <path-to-ampere-cli> install
+sudo <path-to-pastaperfection-cli> install
 ```
 
-This installs `ampered` to `/Library/PrivilegedHelperTools/`, writes the
+This installs `pastaperfectiond` to `/Library/PrivilegedHelperTools/`, writes the
 launchd plist at `/Library/LaunchDaemons/com.ampere.daemon.plist`, and
 bootstraps it into `launchd` (`RunAtLoad=true`, `KeepAlive=true`).
 
 To remove it:
 
 ```sh
-sudo <path-to-ampere-cli> uninstall
+sudo <path-to-pastaperfection-cli> uninstall
 ```
 
 Uninstalling boots the daemon out of `launchd`, removes the installed files
@@ -99,27 +99,27 @@ failure/exit path re-enables charging — see `SPEC.md` §1).
 ## Launch at login
 
 The popover has a "Launch at login" toggle, backed by
-`SMAppService.mainApp`. It only appears when Ampere is running from a real
-app bundle (`dist/Ampere.app`) — a bare binary built by `swift build` has no
+`SMAppService.mainApp`. It only appears when PastaPerfection is running from a real
+app bundle (`dist/PastaPerfection.app`) — a bare binary built by `swift build` has no
 bundle identifier and can't register as a login item, so the toggle is
 hidden in that case rather than shown broken.
 
 ## IMPORTANT: turn off macOS's native charge limit
 
 **macOS Settings → Battery → Charge Limit must stay OFF (or set to 100%)
-while Ampere is active.** Ampere and Apple's built-in charge limit both try
+while PastaPerfection is active.** PastaPerfection and Apple's built-in charge limit both try
 to control the same SMC charging-inhibit keys; running both at once means
 two controllers fighting over the same hardware state, with unpredictable
 results. Use one or the other, not both. (SPEC.md §8.)
 
 ## Firmware canary: `writeVerified`
 
-Every SMC write Ampere makes is followed by a read-back to confirm it took
-effect (SPEC.md §4). If a write appears to have had no effect — e.g. Ampere
+Every SMC write PastaPerfection makes is followed by a read-back to confirm it took
+effect (SPEC.md §4). If a write appears to have had no effect — e.g. PastaPerfection
 asked for charging to be inhibited but the readback still shows the old
 value — `get-state` reports `writeVerified: false`. This is a canary for
 firmware drift: **a macOS update can silently change SMC key behavior**,
-and if that happens, Ampere's SMC control may stop working until the keys
+and if that happens, PastaPerfection's SMC control may stop working until the keys
 are re-probed and, if necessary, this repo's key table
 (`docs/smc-findings.md`) is updated for the new firmware. Treat
 `writeVerified: false` as "stop trusting the current mode until this is
